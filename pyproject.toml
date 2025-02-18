@@ -1,0 +1,17 @@
+[project]
+name = "v3i"
+version = "0.0.1"
+description = "VIII"
+readme = "README.md"
+authors = [
+    { name = "Hieronim Kubica", email = "hkkubica@gmail.com" },
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+dev-dependencies = [
+    "pip==25.*",
+    "pytest==8.*",
+    "ruff==0.9.*",
+]

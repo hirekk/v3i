@@ -1,0 +1,23 @@
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v5.0.0
+  hooks:
+  - id: check-added-large-files
+  - id: check-ast
+  - id: check-json
+  - id: check-yaml
+  - id: end-of-file-fixer
+  - id: pretty-format-json
+    exclude_types: [ jupyter ]
+    args: [ --autofix ]
+  - id: trailing-whitespace
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.9.6
+  hooks:
+  - id: ruff
+    args:
+    - --fix
+    - --preview
+  - id: ruff-format
+    args:
+    - --preview

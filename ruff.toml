@@ -1,0 +1,48 @@
+line-length = 100
+indent-width = 4
+
+target-version = "py313"
+
+[lint]
+select = ["ALL"]
+ignore = [
+    "CPY",
+    "PLR",
+    "ANN101",
+    "ERA001",
+]
+fixable = ["ALL"]
+unfixable = []
+
+[lint.isort]
+force-single-line = true  # See google style guide: https://google.github.io/styleguide/pyguide.html#313-imports-formatting
+force-sort-within-sections = true  # See google style guide: https://google.github.io/styleguide/pyguide.html#313-imports-formatting
+single-line-exclusions = ["abc", "collections.abc", "typing"]  # See google style guide: https://google.github.io/styleguide/pyguide.html#313-imports-formatting
+known-local-folder = ["src", "infra", "tests"]
+
+[lint.pydocstyle]
+# Use Google-style docstrings.
+convention = "google"
+
+[format]
+quote-style = "double"
+
+indent-style = "space"
+
+skip-magic-trailing-comma = false
+
+line-ending = "auto"
+
+# Enable auto-formatting of code examples in docstrings. Markdown,
+# reStructuredText code/literal blocks and doctests are all supported.
+#
+# This is currently disabled by default, but it is planned for this
+# to be opt-out in the future.
+docstring-code-format = true
+
+# Set the line length limit used when formatting code snippets in
+# docstrings.
+#
+# This only has an effect when the `docstring-code-format` setting is
+# enabled.
+docstring-code-line-length = "dynamic"

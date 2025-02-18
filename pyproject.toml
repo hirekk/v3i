@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/pixie"]
+packages = ["src/v3i"]
 
 [project]
 name = "v3i"
@@ -16,6 +16,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "torch==2.6.*",
+    "torchvision==0.21.*",
 ]
 
 [tool.uv]

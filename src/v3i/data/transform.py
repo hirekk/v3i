@@ -1,58 +1,64 @@
-"""Data transformations."""
+"""Data transformation."""
 
 import torch
-import torch.nn as nn
-
-from v3i.operations import cumulative_cross_product
+import torchvision.transforms.functional as tf
 
 
-class OctonionCharEmbedding(nn.Module):
-    def __init__(self, vocab_size, device=None) -> None:
-        """Args:
-        vocab_size (int): number of unique characters.
-        device (torch.device, optional): for placement.
-        """
-        super().__init__()
-        self.vocab_size = vocab_size
-        # Each character is represented as an 8-dimensional vector (an octonion).
-        self.embedding = nn.Embedding(num_embeddings=vocab_size, embedding_dim=8)
-        self.device = device if device is not None else torch.device("cpu")
+class OctonionTransform:
+    """Transform an MNIST image into an octonionic representation.
 
-    def forward(self, input_ids):
-        """Converts a word (represented as a sequence of character IDs) into a
-        single 7-d word embedding computed as the cumulative cross product
-        of the characters' imaginary parts.
+    Each pixel is mapped to an 8-dimensional vector (an octonion) as follows:
+    - Channel 0: Normalized pixel value in [0, 1].
+    - Channel 1: Normalized x coordinate (column index) in [0, 1].
+    - Channel 2: Normalized y coordinate (row index) in [0, 1].
+    - Channel 3 - 7: Random values drawn uniformly from [0, 1].
 
-        Args:
-            input_ids (Tensor): shape (batch_size, max_word_length)
-                                Each row is a word (sequence of char IDs).
-                                (If using padding, you should apply an appropriate mask.)
+    Finally, each 8-dim vector is normalized to lie on the unit sphere.
+    """
 
-        Returns:
-            Tensor: shape (batch_size, 7) with the word embeddings.
-        """
-        # Get octonion embeddings: shape (batch_size, max_word_length, 8)
-        oct_embeddings = self.embedding(input_ids)
-        # Extract the imaginary parts (indices 1 to 7) to yield 7-d vectors.
-        imag_parts = oct_embeddings[:, :, 1:]  # shape: (B, L, 7)
+    def __call__(self, img):
+        # If the input is not a tensor, convert it (this handles PIL.Image inputs).
+        if not isinstance(img, torch.Tensor):
+            img = tf.to_tensor(img)
+        # For MNIST, img should have shape (C, H, W) with C==1.
+        if img.dim() == 3 and img.shape[0] > 1:
+            img = img[0:1, :, :]
+        img = img.float()  # ensure the image is a float tensor
 
-        batch_size = imag_parts.shape[0]
-        word_embeddings = []
-        # Here we iterate over the batch; in production you might vectorize this.
-        for i in range(batch_size):
-            # For each word, we assume all positions are valid.
-            # (If using a padding index, filter out padded positions.)
-            word_vector = cumulative_cross_product(imag_parts[i])
-            word_embeddings.append(word_vector)
+        # Get image dimensions.
+        _, height, width = img.shape
+        device = img.device
 
-        return torch.stack(word_embeddings, dim=0)
+        # Create normalized coordinate grids.
+        # grid_x: Each row will have values ranging from 0 to 1 (columns).
+        grid_x = torch.linspace(0, 1, steps=width, device=device).repeat(height, 1)
+        # grid_y: Each column will have values ranging from 0 to 1 (rows).
+        grid_y = torch.linspace(0, 1, steps=height, device=device).unsqueeze(1).repeat(1, width)
 
+        # Generate the remaining 5 random channels.
+        random_channels = torch.rand(5, height, width, device=device)
 
-if __name__ == "__main__":
-    # Example test: suppose our vocabulary has 50 characters.
-    vocab_size = 50
-    model = OctonionCharEmbedding(vocab_size=vocab_size)
+        # Concatenate the components:
+        # - Original pixel: shape (1, H, W)
+        # - x coordinates: shape (1, H, W)
+        # - y coordinates: shape (1, H, W)
+        # - random channels: shape (5, H, W)
+        octonion = torch.cat(
+            [
+                img,
+                grid_x.unsqueeze(0),
+                grid_y.unsqueeze(0),
+                random_channels,
+            ],
+            dim=0,
+        )  # Resulting shape: (8, H, W)
 
-    # Dummy input: batch of 3 words, each word as a sequence of 4 character IDs.
-    dummy_input = torch.randint(0, vocab_size, (3, 4))
-    output = model(dummy_input)
+        # Normalize each pixel's 8-dim vector to lie on the unit sphere.
+        # We compute the L2 norm per pixel (i.e. across the channel dimension).
+        norm = torch.sqrt(torch.sum(octonion**2, dim=0, keepdim=True)) + 1e-8
+        octonion_normalized = octonion / norm
+
+        return octonion_normalized
+
+    def __repr__(self):
+        return self.__class__.__name__ + "()"

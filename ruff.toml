@@ -1,3 +1,5 @@
+src = ["src"]
+
 line-length = 100
 indent-width = 4
 
@@ -18,7 +20,10 @@ unfixable = []
 force-single-line = true  # See google style guide: https://google.github.io/styleguide/pyguide.html#313-imports-formatting
 force-sort-within-sections = true  # See google style guide: https://google.github.io/styleguide/pyguide.html#313-imports-formatting
 single-line-exclusions = ["abc", "collections.abc", "typing"]  # See google style guide: https://google.github.io/styleguide/pyguide.html#313-imports-formatting
-known-local-folder = ["src", "infra", "tests"]
+known-local-folder = ["src", "tests"]
+
+[lint.per-file-ignores]
+"__init__.py" = ["D415"]
 
 [lint.pydocstyle]
 # Use Google-style docstrings.

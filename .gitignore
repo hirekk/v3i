@@ -171,6 +171,5 @@ cython_debug/
 # SSH keys
 **.pem
 
-# Ansible
-ansible/.vault_password
-ansible/vault.yaml
+# Data
+data/

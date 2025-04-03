@@ -1,10 +1,14 @@
 """Data transformation."""
 
+import os
+
 import torch
+import torchvision.datasets as datasets
+import torchvision.transforms as transforms
 import torchvision.transforms.functional as tf
 
 
-class OctonionTransform:
+class MnistOctonionTransform:
     """Transform an MNIST image into an octonionic representation.
 
     Each pixel is mapped to an 8-dimensional vector (an octonion) as follows:
@@ -62,3 +66,59 @@ class OctonionTransform:
 
     def __repr__(self):
         return self.__class__.__name__ + "()"
+
+
+def serialize_mnist(dataset: datasets.MNIST, output_file: str):
+    """Converts a dataset into a dictionary of data and labels and serializes it to disk.
+
+    Args:
+        dataset: A torchvision dataset object.
+        output_file: The file path where the serialized data will be saved.
+    """
+    data_list = []
+    label_list = []
+
+    # Loop through the dataset and collect transformed samples.
+    for idx in range(len(dataset)):
+        sample, label = dataset[idx]
+        # Optionally, add a batch dimension for each sample.
+        data_list.append(sample.unsqueeze(0))  # Shape becomes (1, 8, H, W)
+        label_list.append(label)
+
+    # Concatenate all samples into a single tensor.
+    data_tensor = torch.cat(data_list, dim=0)  # Final shape: (N, 8, H, W)
+    labels_tensor = torch.tensor(label_list)
+
+    # Create a dictionary to hold the dataset.
+    dataset_dict = {
+        "data": data_tensor,
+        "labels": labels_tensor,
+    }
+
+    # Make sure the output directory exists.
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+    # Serialize using torch.save.
+    torch.save(dataset_dict, output_file)
+    print(f"Serialized dataset saved to {output_file}")
+
+
+if __name__ == "__main__":
+    # Define our composed transformation.
+    transform = transforms.Compose([
+        MnistOctonionTransform(),
+    ])
+
+    # Read the MNIST dataset from the data directory.
+    mnist_dataset = datasets.MNIST(
+        root="data/MNIST/raw",
+        train=True,
+        transform=transform,
+        download=True,
+    )
+
+    # Define the path for serialized data.
+    output_file = "data/MNIST/transformed/octonion_mnist_train.pt"
+
+    # Serialize the dataset.
+    serialize_mnist(mnist_dataset, output_file)

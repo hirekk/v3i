@@ -10,7 +10,6 @@ select = ["ALL"]
 ignore = [
     "CPY",
     "PLR",
-    "ANN101",
     "ERA001",
 ]
 fixable = ["ALL"]

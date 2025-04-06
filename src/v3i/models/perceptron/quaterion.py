@@ -7,7 +7,7 @@ for weights, inputs, and outputs instead of real numbers.
 from __future__ import annotations
 
 import logging
-from typing import Literal, NamedTuple
+from typing import Literal
 
 import numpy as np
 import quaternion
@@ -15,14 +15,6 @@ import quaternion
 logger = logging.getLogger(__name__)
 
 ForwardType = Literal["rotated_weight", "rotation", "commutator"]
-
-
-class RotationState(NamedTuple):
-    """Current state of the rotation."""
-
-    axis: np.ndarray
-    angle: float
-    quat: quaternion.quaternion
 
 
 class QuaternionPerceptron:
@@ -45,216 +37,89 @@ class QuaternionPerceptron:
         # TODO: Buffered updates idea
         # We will accumulate updates and apply them in one go after a batch of updates.
         self.batch_size = batch_size
-        self.update_buffer: RotationState = RotationState(
-            axis=np.array([1, 0, 0]),
-            angle=0,
-            quat=quaternion.quaternion(1, 0, 0, 0),
-        )
+        self.update_buffer: list[quaternion.quaternion] = []
 
         self.rng = np.random.default_rng(seed=random_seed)
         self.weight = self._initialize_weight()
-
-        # Debugging trackers
-        self.update_history = []
-        self.weight_history = []
-        self.prediction_history = []
-
-        # Save initial state
-        self._record_weight_state("initialization")
-
-    def _record_weight_state(self, event: str) -> None:
-        """Record current weight state with additional context."""
-        self.weight_history.append({
-            "event": event,
-            "axis": self.weight.axis.copy(),
-            "angle": self.weight.angle,
-            "quaternion": quaternion.as_float_array(self.weight.quat).copy(),
-            "update_count": len(self.update_history),
-        })
-
-    def _record_update(
-        self,
-        inputs: np.ndarray,
-        label: int,
-        prediction: int,
-        error_scale: float,
-        update_angle: float,
-        confidence: float,
-    ) -> None:
-        """Record details about an update."""
-        self.update_history.append({
-            "label": label,
-            "prediction": prediction,
-            "error_scale": error_scale,
-            "update_angle": update_angle,
-            "confidence": confidence,
-            "weight_angle": self.weight.angle,
-            "weight_axis": self.weight.axis.copy(),
-        })
-
-    def _record_prediction(
-        self,
-        rotation: RotationState,
-        prediction: int,
-        confidence: float,
-    ) -> None:
-        """Record prediction details."""
-        self.prediction_history.append({
-            "rotation_angle": rotation.angle,
-            "rotation_axis": rotation.axis.copy(),
-            "prediction": prediction,
-            "confidence": confidence,
-        })
-
-    def get_update_stats(self, window: int = 100) -> dict:
-        """Get statistics about recent updates.
-
-        Args:
-            window: Number of recent updates to analyze
-
-        Returns:
-            Dictionary containing various statistics about updates
-        """
-        if not self.update_history:
-            return {}
-
-        recent_updates = self.update_history[-window:]
-
-        # Compute basic statistics
-        update_angles = [update["update_angle"] for update in recent_updates]
-        error_scales = [update["error_scale"] for update in recent_updates]
-        confidences = [update["confidence"] for update in recent_updates]
-
-        # Compute weight movement
-        weight_angles = [update["weight_angle"] for update in recent_updates]
-        weight_axes = [update["weight_axis"] for update in recent_updates]
-
-        # Compute axis stability (dot product between consecutive axes)
-        axis_changes = []
-        for i in range(1, len(weight_axes)):
-            dot_product = np.dot(weight_axes[i], weight_axes[i - 1])
-            axis_changes.append(np.arccos(np.clip(dot_product, -1, 1)))
-
-        return {
-            "mean_update_angle": np.mean(update_angles),
-            "std_update_angle": np.std(update_angles),
-            "mean_error_scale": np.mean(error_scales),
-            "mean_confidence": np.mean(confidences),
-            "weight_angle_change": np.std(weight_angles),
-            "mean_axis_change": np.mean(axis_changes) if axis_changes else 0,
-            "correct_predictions": sum(1 for u in recent_updates if u["label"] == u["prediction"]),
-            "total_updates": len(recent_updates),
-        }
-
-    def get_weight_evolution(self) -> dict:
-        """Get information about how the weight has evolved."""
-        if not self.weight_history:
-            return {}
-
-        # Compute trajectory statistics
-        angle_trajectory = [w["angle"] for w in self.weight_history]
-        axis_trajectory = [w["axis"] for w in self.weight_history]
-
-        # Compute axis stability over time
-        axis_changes = []
-        for i in range(1, len(axis_trajectory)):
-            dot_product = np.dot(axis_trajectory[i], axis_trajectory[i - 1])
-            axis_changes.append(np.arccos(np.clip(dot_product, -1, 1)))
-
-        return {
-            "initial_state": self.weight_history[0],
-            "final_state": self.weight_history[-1],
-            "angle_range": (min(angle_trajectory), max(angle_trajectory)),
-            "total_axis_change": sum(axis_changes),
-            "num_updates": len(self.weight_history) - 1,
-        }
-
-    def _initialize_weight(self) -> RotationState:
-        """Initialize weight as a random rotation."""
-        axis = self._random_unit_vector()
-        angle = self.rng.uniform(0, 2 * np.pi)
-        quat = quaternion.from_rotation_vector(angle * axis)
-        return RotationState(axis=axis, angle=angle, quat=quat)
 
     def _random_unit_vector(self) -> np.ndarray:
         """Generate a random unit vector for rotation axis."""
         v = self.rng.normal(0, 1, 3)
         return v / np.linalg.norm(v)
 
-    def _rotation_to_quaternion(self, axis: np.ndarray, angle: float) -> quaternion.quaternion:
-        """Convert axis-angle representation to quaternion."""
-        return quaternion.from_rotation_vector(angle * axis)
+    def _initialize_weight(self) -> quaternion.quaternion:
+        """Initialize weight as a random rotation."""
+        # Generate random 4D vector
+        components = self.rng.normal(0, 1, 4)
+        # Normalize to unit length
+        components = components / np.linalg.norm(components)
+        return quaternion.quaternion(*components)
 
-    def _quaternion_to_rotation(self, q: quaternion.quaternion) -> tuple[np.ndarray, float]:
-        """Extract axis and angle from quaternion."""
-        # Ensure unit quaternion
-        q = q / abs(q)
+    def get_angle(self) -> float:
+        """Get the angle of a quaternion."""
+        angle = quaternion.rotation_intrinsic_distance(self.weight, quaternion.one)
+        if angle < 0 or angle > 2 * np.pi:
+            raise ValueError(f"Angle is out of range [0, 2π]: {angle}")
+        return angle
 
-        # Extract angle
-        angle = 2 * np.arccos(np.clip(q.w, -1, 1))
+    def get_axis(self, tolerance: float = 1e-10) -> np.ndarray:
+        """Get the axis of the weight quaternion."""
+        angle = self.get_angle()
+        if angle < tolerance:
+            return np.array([1, 0, 0])
+        return quaternion.as_rotation_vector(self.weight) / angle
 
-        # Extract axis
-        if abs(angle) < 1e-10:
-            # If angle is very small, use previous axis
-            return self.weight.axis, angle
+    def _is_rotation_quaternion(self, q: quaternion.quaternion, tolerance: float = 1e-10) -> bool:
+        """Check if quaternion represents a valid rotation.
 
-        axis = quaternion.as_float_array(q)[1:] / np.sin(angle / 2)
-        return axis, angle
+        A rotation quaternion must be unit length.
 
-    def _compute_minimal_rotation(
+        Args:
+            q: The quaternion to check.
+            tolerance: The tolerance for the unit length check.
+
+        Returns:
+            True if the quaternion is a valid rotation, False otherwise.
+        """
+        norm = abs(q)
+        return abs(norm - 1.0) < tolerance
+
+    def _assert_rotation_quaternion(self, q: quaternion.quaternion, msg: str = "") -> None:
+        """Assert that quaternion represents a valid rotation."""
+        if not self._is_rotation_quaternion(q):
+            msg = f"Invalid rotation quaternion: {msg}"
+            raise ValueError(msg)
+
+    def _compute_geodesic_rotation(
         self,
         start: quaternion.quaternion,
         end: quaternion.quaternion,
     ) -> quaternion.quaternion:
-        """Compute the minimal rotation quaternion that takes start to end."""
-        # Ensure unit quaternions
-        start = start / abs(start)
-        end = end / abs(end)
-
-        # The rotation quaternion is sqrt(end * start^(-1))
-        r = end * start.conjugate()
-
-        # Normalize to get unit quaternion
-        r = r / abs(r)
-
-        # Ensure we take the shorter path (rotation angle ≤ π)
-        if r.w < 0:
-            r = -r
-
-        return r
-
-    def _compute_pulled_back_error(
-        self,
-        error_rotation: quaternion.quaternion,
-        inputs: np.ndarray,
-    ) -> quaternion.quaternion:
-        """Pull back error through input rotations.
+        """Compute the minimal rotation that takes start to end along the geodesic.
 
         Args:
-            error_rotation: The error represented as a rotation quaternion
-            inputs: Array of input quaternions
+            start: The starting quaternion.
+            end: The ending quaternion.
 
         Returns:
-            Pulled back error rotation
+            A unit quaternion representing this optimal rotation.
         """
-        pulled_back_error = error_rotation
+        # The rotation we want is: end * start^(-1)
+        # This gives us the rotation that takes start to end
+        rotation = end * start.conjugate()
 
-        # Pull back through each input rotation in reverse order
-        for x in reversed(inputs):
-            x_q = quaternion.quaternion(*x) if isinstance(x, np.ndarray) else x
+        # Normalize to ensure we're on the 3-sphere
+        rotation = rotation / abs(rotation)
 
-            if abs(x_q) < 1e-15:
-                continue
+        # If the rotation angle is > π, we should go the other way around
+        # We can check this by looking at the real part (w component)
+        # If w < 0, the angle is > π
+        if rotation.w < 0:
+            rotation = -rotation  # Take the shorter path
 
-            # Normalize input
-            x_q = x_q / abs(x_q)
+        return rotation
 
-            # Pull back through this rotation
-            pulled_back_error = x_q * pulled_back_error * x_q.conjugate()
-
-        return pulled_back_error
-
-    def forward(self, inputs: np.ndarray) -> RotationState:
+    def forward(self, inputs: np.ndarray, tolerance: float = 1e-10) -> quaternion.quaternion:
         """Forward pass computing final rotation state.
 
         Args:
@@ -263,110 +128,62 @@ class QuaternionPerceptron:
         Returns:
             RotationState containing final axis, angle, and quaternion
         """
-        # Start with current weight quaternion
-        result = self.weight.quat
+        result = quaternion.one
 
-        # Ensure inputs is an array of quaternions
-        if isinstance(inputs, list | np.ndarray):
-            inputs = [
-                x if isinstance(x, quaternion.quaternion) else quaternion.quaternion(*x)
-                for x in inputs
-            ]
+        for x in inputs:
+            x_q = quaternion.quaternion(*x) if isinstance(x, np.ndarray) else x
 
-        for x_q in inputs:
-            if abs(x_q) < 1e-15:
+            if abs(x_q) < tolerance:
                 continue
 
-            # Normalize input
             x_n = x_q / abs(x_q)
 
-            # Compose rotations
             result = x_n * result
 
-        # Extract final rotation parameters
-        axis, angle = self._quaternion_to_rotation(result)
-        return RotationState(axis=axis, angle=angle, quat=result)
+        return self.weight * result * self.weight.conjugate()
 
-    def predict(self, rotation: RotationState) -> int:
-        """Predict class based on final rotation.
+    def predict(self, rotated: quaternion.quaternion) -> int:
+        """Predict class based on final rotation angle."""
+        return np.sign(rotated.w)
 
-        We use the rotation angle and its direction relative to a reference axis (weight axis).
-        If the angle is positive, we predict 1, otherwise -1.
-
-        Args:
-            rotation: The final rotation state.
-
-        Returns:
-            1 if the rotation is in the positive direction, -1 otherwise.
-        """
-        # Project rotation axis onto reference axis (using weight axis as reference)
-        projection = np.dot(rotation.axis, self.weight.axis)
-
-        # Combine angle and projection for prediction
-        # This considers both how much and in what direction we rotated
-        decision_value = rotation.angle * projection
-        return 1 if decision_value >= 0 else -1
-
-    def _compute_error_rotation(
-        self,
-        prediction: quaternion.quaternion,
-        label: int,
-    ) -> quaternion.quaternion:
-        """Compute the minimal rotation that would take prediction to target label."""
-        # Convert label to target quaternion
-        target = quaternion.quaternion(label, 0, 0, 0)
-        return self._compute_minimal_rotation(prediction, target)
-
-    def train(self, inputs: np.ndarray, label: int) -> None:
-        """Train on a single example using continuous updates.
+    def train(self, inputs: np.ndarray, label: int, tolerance: float = 1e-10) -> None:
+        """Update weight based on accumulated rotation error.
 
         Updates are performed based on the residual error, regardless of whether the prediction was correct.
+
+        Args:
+            inputs: Array of quaternions representing the input
+            label: The target label
         """
+        # Validate current weight
+        self._assert_rotation_quaternion(self.weight, "Current weight")
+
         # Forward pass
-        final_rotation = self.forward(inputs)
-        prediction = self.predict(final_rotation)
+        rotated = self.forward(inputs)
 
-        # Compute confidence
-        confidence = abs(np.dot(final_rotation.axis, self.weight.axis))
-
-        # Record prediction
-        self._record_prediction(final_rotation, prediction, confidence)
-
-        # Compute error and update
+        # Compute error as geodesic rotation from current to target
         target = quaternion.quaternion(label, 0, 0, 0)
-        prediction_q = quaternion.quaternion(prediction, 0, 0, 0)
-        error_rotation = target * prediction_q.conjugate()
+        error_rotation = self._compute_geodesic_rotation(rotated, target)
 
-        # Scale error by prediction confidence
-        error_scale = 1.0 - confidence
+        # Validate error rotation
+        self._assert_rotation_quaternion(error_rotation, "Error rotation")
 
-        # Pull back error and compute update
-        pulled_back_error = self._compute_pulled_back_error(error_rotation, inputs)
-        update_axis, update_angle = self._quaternion_to_rotation(pulled_back_error)
+        if abs(error_rotation.w - 1) > tolerance:  # if it's not identity rotation
+            self.update_buffer.append(error_rotation)
 
-        # Record pre-update state
-        self._record_weight_state("pre_update")
+        if len(self.update_buffer) == self.batch_size:
+            # Apply all accumulated updates
+            update = quaternion.one
+            for update_step in self.update_buffer:
+                update = update_step * update
 
-        # Apply update
-        scaled_angle = self.learning_rate * update_angle * error_scale
-        update_q = self._rotation_to_quaternion(update_axis, scaled_angle)
-        new_q = update_q * self.weight.quat
+            # Validate composed update
+            self._assert_rotation_quaternion(update, "Composed update")
 
-        # Extract new parameters
-        new_axis, new_angle = self._quaternion_to_rotation(new_q)
+            self.weight = update * self.weight
 
-        # Update weight
-        self.weight = RotationState(axis=new_axis, angle=new_angle, quat=new_q)
+            # Validate updated weight
+            self._assert_rotation_quaternion(self.weight, "Updated weight")
 
-        # Record update details
-        self._record_update(
-            inputs=inputs,
-            label=label,
-            prediction=prediction,
-            error_scale=error_scale,
-            update_angle=scaled_angle,
-            confidence=confidence,
-        )
-
-        # Record post-update state
-        self._record_weight_state("post_update")
+            # Reset buffer
+            self.update_buffer = []

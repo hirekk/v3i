@@ -149,11 +149,11 @@ class QuaternionPerceptron:
         """Convert rotation quaternion to axis-angle representation in log space."""
         if abs(q.w - 1) < 1e-10:  # If close to identity
             return np.zeros(3)
-        
+
         # Extract vector part
         v = np.array([q.x, q.y, q.z])
         theta = 2 * np.arccos(np.clip(q.w, -1, 1))
-        
+
         # Normalize and scale by theta
         if np.linalg.norm(v) < 1e-10:
             return np.zeros(3)
@@ -164,41 +164,43 @@ class QuaternionPerceptron:
         theta = np.linalg.norm(v)
         if theta < 1e-10:
             return quaternion.one
-        
+
         axis = v / theta
         return quaternion.from_rotation_vector(theta * axis)
 
     def train(self, inputs: np.ndarray, label: int, tolerance: float = 1e-10) -> None:
         """Update weight using log/exp map for better stability."""
         self._assert_rotation_quaternion(self.weight, "Current weight")
-        
+
         # Forward pass
         rotated = self.forward(inputs)
-        
+
         # Compute error as geodesic rotation from current to target
         target = quaternion.quaternion(label, 0, 0, 0)
         error_rotation = self._compute_geodesic_rotation(rotated, target)
-        
+
         if abs(error_rotation.w - 1) > tolerance:  # if not identity rotation
             # Convert error to log space (axis-angle)
             error_vec = self._quaternion_log(error_rotation)
-            
+
             # Scale the error by learning rate
-            scaled_error = -self.learning_rate * error_vec  # Negative because we want to move opposite to error
-            
+            scaled_error = (
+                -self.learning_rate * error_vec
+            )  # Negative because we want to move opposite to error
+
             # Add to update buffer in log space
             self.update_buffer.append(scaled_error)
-        
+
         if len(self.update_buffer) == self.batch_size:
             # Average the updates in log space
             mean_update = np.mean(self.update_buffer, axis=0)
-            
+
             # Convert back to quaternion
             update = self._quaternion_exp(mean_update)
-            
+
             # Apply update: rotate weight by update
             self.weight = self.weight * update  # Note: order changed to rotate weight by update
             self.weight = self.weight / abs(self.weight)  # Ensure normalization
-            
+
             # Reset buffer
             self.update_buffer = []

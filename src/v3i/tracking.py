@@ -4,113 +4,102 @@ import json
 from pathlib import Path
 from typing import Any
 
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import streamlit as st
 
-@dataclass
-class ExperimentHistory:
-    """Experiment history with configurable step intervals."""
+def plot_weight_evolution(experiment_path: Path) -> go.Figure:
+    """Create an interactive plot of weight component evolution."""
+    with open(experiment_path / "experiment.json", "r") as f:
+        data = json.load(f)
+    
+    # Extract weight history
+    steps = []
+    w_comp = []
+    x_comp = []
+    y_comp = []
+    z_comp = []
+    
+    for record in data["weight_history"]:
+        steps.append(record["epoch"] + record["step"]/20000)  # normalize step to epoch
+        w_comp.append(record["w"])
+        x_comp.append(record["x"])
+        y_comp.append(record["y"])
+        z_comp.append(record["z"])
+    
+    # Create figure
+    fig = go.Figure()
+    
+    # Add traces for each component
+    fig.add_trace(go.Scatter(
+        x=steps, y=w_comp,
+        mode='lines',
+        name='w (real)',
+        line=dict(color='blue')
+    ))
+    fig.add_trace(go.Scatter(
+        x=steps, y=x_comp,
+        mode='lines',
+        name='x (i)',
+        line=dict(color='red')
+    ))
+    fig.add_trace(go.Scatter(
+        x=steps, y=y_comp,
+        mode='lines',
+        name='y (j)',
+        line=dict(color='green')
+    ))
+    fig.add_trace(go.Scatter(
+        x=steps, y=z_comp,
+        mode='lines',
+        name='z (k)',
+        line=dict(color='purple')
+    ))
+    
+    # Update layout
+    fig.update_layout(
+        title='Weight Components Evolution',
+        xaxis_title='Epoch',
+        yaxis_title='Component Value',
+        hovermode='x unified',
+        template='plotly_white'
+    )
+    
+    return fig
 
-    timestamp: str
-    experiment_dir: Path
-    model_params: Mapping[str, Any]
-    metrics: Mapping[int, Mapping[str, Any]]  # Matches the schema
-    step_interval: int = 100  # Configurable interval
+def launch_dashboard() -> None:
+    """Launch Streamlit dashboard for experiment visualization."""
+    st.set_page_config(page_title="Quaternion Perceptron Dashboard", layout="wide")
+    st.title("Quaternion Perceptron Weight Evolution")
+    
+    # Experiment selection
+    experiments_dir = Path("data/experiments")
+    experiments = sorted([d for d in experiments_dir.iterdir() if d.is_dir()], reverse=True)
+    
+    if not experiments:
+        st.error("No experiments found in data/experiments directory")
+        return
+        
+    selected_exp = st.selectbox(
+        "Select experiment:",
+        experiments,
+        format_func=lambda x: x.name
+    )
+    
+    # Plot weight evolution
+    fig = plot_weight_evolution(selected_exp)
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Display experiment details
+    with open(selected_exp / "experiment.json", "r") as f:
+        data = json.load(f)
+    
+    # Show final accuracies
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Final Training Accuracy", f"{data['train_accuracies'][-1]:.4f}")
+    with col2:
+        st.metric("Final Test Accuracy", f"{data['test_accuracies'][-1]:.4f}")
 
-    def __init__(
-        self,
-        timestamp: str,
-        experiment_dir: Path,
-        model_params: Mapping[str, Any],
-        step_interval: int = 100,
-    ) -> None:
-        self.timestamp = timestamp
-        self.experiment_dir = experiment_dir
-        self.model_params = model_params
-        self.metrics = {}
-        self.step_interval = step_interval
-
-    def add_train_step(
-        self,
-        epoch: int,
-        step: int,
-        accuracy: float,
-        weight_angle: float,
-        weight_angle_change: float,
-        weight_axis: float,
-        weight_axis_change: float,
-        update_angle: float,
-        confidence: float,
-        pos_preds: int,
-        neg_preds: int,
-        weight_w: float,
-        weight_x: float,
-        weight_y: float,
-        weight_z: float,
-        weight_norm: float,
-        weight_axis_magnitude: float,
-        mean_confidence: float,
-        std_confidence: float,
-        mean_error_angle: float,
-        class_balance: float,
-        prediction_switches: int,
-        recent_update_angles: list[float],
-        update_angle_std: float,
-        running_accuracy: float,
-    ) -> None:
-        """Record training metrics at a step."""
-        if step % self.step_interval != 0:
-            return
-
-        if epoch not in self.metrics:
-            self.metrics[epoch] = {"train": {}, "test": {"accuracy": 0.0}}
-
-        self.metrics[epoch]["train"][step] = {
-            "accuracy": accuracy,
-            "weight_angle": weight_angle,
-            "weight_angle_change": weight_angle_change,
-            "weight_axis": weight_axis,
-            "weight_axis_change": weight_axis_change,
-            "update_angle": update_angle,
-            "confidence": confidence,
-            "prediction_distribution": {
-                "pos": pos_preds,
-                "neg": neg_preds,
-            },
-            "weight_w": weight_w,
-            "weight_x": weight_x,
-            "weight_y": weight_y,
-            "weight_z": weight_z,
-            "weight_norm": weight_norm,
-            "weight_axis_magnitude": weight_axis_magnitude,
-            "mean_confidence": mean_confidence,
-            "std_confidence": std_confidence,
-            "mean_error_angle": mean_error_angle,
-            "class_balance": class_balance,
-            "prediction_switches": prediction_switches,
-            "recent_update_angles": recent_update_angles,
-            "update_angle_std": update_angle_std,
-            "running_accuracy": running_accuracy,
-        }
-        self.save()
-
-    def add_test_metrics(self, epoch: int, accuracy: float) -> None:
-        """Record test metrics for an epoch."""
-        if epoch not in self.metrics:
-            self.metrics[epoch] = {"train": {}, "test": {"accuracy": accuracy}}
-        else:
-            self.metrics[epoch]["test"]["accuracy"] = accuracy
-        self.save()
-
-    def save(self) -> None:
-        """Save history to JSON file."""
-        history_path = self.experiment_dir / "history.json"
-        with open(history_path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "timestamp": self.timestamp,
-                    "model_params": self.model_params,
-                    "metrics": self.metrics,
-                    "step_interval": self.step_interval,
-                },
-                f,
-                indent=2,
-            )
+if __name__ == "__main__":
+    launch_dashboard()

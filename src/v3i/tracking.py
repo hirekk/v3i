@@ -2,12 +2,13 @@ import json
 from pathlib import Path
 
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 
 def plot_weight_evolution(experiment_path: Path) -> go.Figure:
     """Create an interactive plot of weight component evolution."""
-    with open(experiment_path / "experiment.json") as f:
+    with open(experiment_path / "experiment.json", encoding="utf-8") as f:
         data = json.load(f)
 
     # Extract weight history
@@ -34,7 +35,7 @@ def plot_weight_evolution(experiment_path: Path) -> go.Figure:
             y=w_comp,
             mode="lines",
             name="w (real)",
-            line=dict(color="blue"),
+            line={"color": "blue"},
         ),
     )
     fig.add_trace(
@@ -43,7 +44,7 @@ def plot_weight_evolution(experiment_path: Path) -> go.Figure:
             y=x_comp,
             mode="lines",
             name="x (i)",
-            line=dict(color="red"),
+            line={"color": "red"},
         ),
     )
     fig.add_trace(
@@ -52,7 +53,7 @@ def plot_weight_evolution(experiment_path: Path) -> go.Figure:
             y=y_comp,
             mode="lines",
             name="y (j)",
-            line=dict(color="green"),
+            line={"color": "green"},
         ),
     )
     fig.add_trace(
@@ -61,7 +62,7 @@ def plot_weight_evolution(experiment_path: Path) -> go.Figure:
             y=z_comp,
             mode="lines",
             name="z (k)",
-            line=dict(color="purple"),
+            line={"color": "purple"},
         ),
     )
 
@@ -77,10 +78,53 @@ def plot_weight_evolution(experiment_path: Path) -> go.Figure:
     return fig
 
 
+def plot_accuracy_comparison(experiment_path: Path) -> go.Figure:
+    """Create comparison plot of model accuracies."""
+    with open(experiment_path / "experiment.json", encoding="utf-8") as f:
+        data = json.load(f)
+
+    fig = make_subplots(rows=1, cols=2, subplot_titles=["Training Accuracy", "Test Accuracy"])
+
+    # Plot training accuracies
+    for model in ["quaternion", "tree", "logistic"]:
+        fig.add_trace(
+            go.Scatter(
+                x=list(range(len(data[model]["train_accuracies"]))),
+                y=data[model]["train_accuracies"],
+                name=f"{model.capitalize()} (train)",
+                line={"dash": "solid"},
+            ),
+            row=1,
+            col=1,
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=list(range(len(data[model]["test_accuracies"]))),
+                y=data[model]["test_accuracies"],
+                name=f"{model.capitalize()} (test)",
+                line={"dash": "dot"},
+            ),
+            row=1,
+            col=2,
+        )
+
+    fig.update_layout(
+        height=400,
+        title="Model Accuracy Comparison",
+        xaxis_title="Epoch",
+        yaxis_title="Accuracy",
+        hovermode="x unified",
+        template="plotly_white",
+    )
+
+    return fig
+
+
 def launch_dashboard() -> None:
-    """Launch Streamlit dashboard for experiment visualization."""
-    st.set_page_config(page_title="Quaternion Perceptron Dashboard", layout="wide")
-    st.title("Quaternion Perceptron Weight Evolution")
+    """Launch Streamlit dashboard with model comparisons."""
+    st.set_page_config(page_title="Model Comparison Dashboard", layout="wide")
+    st.title("Model Comparison Dashboard")
 
     # Experiment selection
     experiments_dir = Path("data/experiments")
@@ -96,20 +140,25 @@ def launch_dashboard() -> None:
         format_func=lambda x: x.name,
     )
 
-    # Plot weight evolution
-    fig = plot_weight_evolution(selected_exp)
-    st.plotly_chart(fig, use_container_width=True)
+    # Plot accuracy comparison
+    acc_fig = plot_accuracy_comparison(selected_exp)
+    st.plotly_chart(acc_fig, use_container_width=True)
 
-    # Display experiment details
-    with open(selected_exp / "experiment.json") as f:
+    # Plot quaternion weight evolution
+    weight_fig = plot_weight_evolution(selected_exp)
+    st.plotly_chart(weight_fig, use_container_width=True)
+
+    # Display final metrics
+    with open(selected_exp / "experiment.json", encoding="utf-8") as f:
         data = json.load(f)
 
-    # Show final accuracies
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Final Training Accuracy", f"{data['train_accuracies'][-1]:.4f}")
-    with col2:
-        st.metric("Final Test Accuracy", f"{data['test_accuracies'][-1]:.4f}")
+    cols = st.columns(3)
+    for i, model in enumerate(["quaternion", "tree", "logistic"]):
+        with cols[i]:
+            st.metric(
+                f"{model.capitalize()} Final Test Accuracy",
+                f"{data[model]['test_accuracies'][-1]:.4f}",
+            )
 
 
 if __name__ == "__main__":

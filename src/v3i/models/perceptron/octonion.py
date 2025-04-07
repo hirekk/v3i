@@ -75,20 +75,22 @@ class Octonion:
         """Octonion multiplication."""
         if isinstance(other, float | int):
             return Octonion.from_components(self._components * other)
-        a, b = (
-            quaternion.quaternion(*self._components[:4]),
-            quaternion.quaternion(*self._components[4:]),
-        )
-        c, d = (
-            quaternion.quaternion(*other._components[:4]),
-            quaternion.quaternion(*other._components[4:]),
-        )
 
-        new_components = np.zeros(8)
-        new_components[:4] = (a * c - d.conjugate() * b).components
-        new_components[4:] = (d * a + b * c.conjugate()).components
+        # Extract components
+        a0, a1, a2, a3, a4, a5, a6, a7 = self._components
+        b0, b1, b2, b3, b4, b5, b6, b7 = other._components
+        
+        # Direct computation of octonion multiplication
+        c0 = a0*b0 - a1*b1 - a2*b2 - a3*b3 - a4*b4 - a5*b5 - a6*b6 - a7*b7
+        c1 = a0*b1 + a1*b0 + a2*b3 - a3*b2 + a4*b7 - a5*b6 + a6*b5 - a7*b4
+        c2 = a0*b2 - a1*b3 + a2*b0 + a3*b1 + a4*b6 + a5*b7 - a6*b4 - a7*b5
+        c3 = a0*b3 + a1*b2 - a2*b1 + a3*b0 + a4*b5 - a5*b4 + a6*b7 - a7*b6
+        c4 = a0*b4 - a1*b7 - a2*b6 - a3*b5 + a4*b0 + a5*b3 + a6*b2 + a7*b1
+        c5 = a0*b5 + a1*b6 - a2*b7 + a3*b4 - a4*b3 + a5*b0 - a6*b1 + a7*b2
+        c6 = a0*b6 - a1*b5 + a2*b4 - a3*b7 - a4*b2 + a5*b1 + a6*b0 + a7*b3
+        c7 = a0*b7 + a1*b4 + a2*b5 + a3*b6 - a4*b1 - a5*b2 - a6*b3 + a7*b0
 
-        return Octonion(*new_components)
+        return Octonion(c0, c1, c2, c3, c4, c5, c6, c7)
 
     def __getitem__(self, index: int) -> float:
         """Get the component of the octonion."""
@@ -102,20 +104,23 @@ class Octonion:
         """Octonion multiplication from the right."""
         if isinstance(other, float | int):
             return Octonion.from_components(self._components * other)
-        a, b = (
-            quaternion.quaternion(*other._components[:4]),
-            quaternion.quaternion(*other._components[4:]),
-        )
-        c, d = (
-            quaternion.quaternion(*self._components[:4]),
-            quaternion.quaternion(*self._components[4:]),
-        )
 
-        new_components = np.zeros(8)
-        new_components[:4] = (a * c - d.conjugate() * b).components
-        new_components[4:] = (d * a + b * c.conjugate()).components
+        # Extract components
+        a0, a1, a2, a3, a4, a5, a6, a7 = other._components
+        b0, b1, b2, b3, b4, b5, b6, b7 = self._components
+        
+        # Direct computation of octonion multiplication
+        c0 = a0*b0 - a1*b1 - a2*b2 - a3*b3 - a4*b4 - a5*b5 - a6*b6 - a7*b7
+        c1 = a0*b1 + a1*b0 + a2*b3 - a3*b2 + a4*b7 - a5*b6 + a6*b5 - a7*b4
+        c2 = a0*b2 - a1*b3 + a2*b0 + a3*b1 + a4*b6 + a5*b7 - a6*b4 - a7*b5
+        c3 = a0*b3 + a1*b2 - a2*b1 + a3*b0 + a4*b5 - a5*b4 + a6*b7 - a7*b6
+        c4 = a0*b4 - a1*b7 - a2*b6 - a3*b5 + a4*b0 + a5*b3 + a6*b2 + a7*b1
+        c5 = a0*b5 + a1*b6 - a2*b7 + a3*b4 - a4*b3 + a5*b0 - a6*b1 + a7*b2
+        c6 = a0*b6 - a1*b5 + a2*b4 - a3*b7 - a4*b2 + a5*b1 + a6*b0 + a7*b3
+        c7 = a0*b7 + a1*b4 + a2*b5 + a3*b6 - a4*b1 - a5*b2 - a6*b3 + a7*b0
 
-        return Octonion(*new_components)
+        return Octonion(c0, c1, c2, c3, c4, c5, c6, c7)
+
 
     def __truediv__(self, other: float | Octonion) -> Octonion:
         """Octonion division."""

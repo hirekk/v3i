@@ -49,7 +49,7 @@ def plot_quaternion_weight_evolution(weight_history: list[dict], figure: go.Figu
     z_comp = []
 
     for record in weight_history:
-        steps.append(record["epoch"] + record["step"] / 20000)  # normalize step to epoch
+        steps.append(record["epoch"] + record["step"] / 10_000)  # normalize step to epoch
         w_comp.append(record["w"])
         x_comp.append(record["x"])
         y_comp.append(record["y"])
@@ -85,7 +85,7 @@ def plot_octonion_weight_evolution(weight_history: list[dict], figure: go.Figure
     
     # Collect all data points first
     for record in weight_history:
-        steps.append(record["epoch"] + record["step"] / 20000)
+        steps.append(record["epoch"] + record["step"] / 10_000)
         for i in range(8):
             components[f"x{i}"].append(record[f"x{i}"])
 

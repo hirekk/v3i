@@ -21,6 +21,10 @@ from v3i.models.perceptron.quaterion import QuaternionPerceptron
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+QUATERNION_DATA_DIR = DEFAULT_DATA_DIR / "MNIST" / "quaternion"
+QUATERNION_DATA_DIR.mkdir(parents=True, exist_ok=True)
+RANDOM_SEED = 42
+
 
 def digit_to_label(digit: int) -> int:
     """Return 1 if digit is even, -1 if odd."""
@@ -85,9 +89,6 @@ def convert_mnist_to_quaternions(images: list[np.ndarray], img_size: int = 28) -
 
 def main() -> None:
     """Main function to run the MNIST classification using QuaternionPerceptron."""
-    QUATERNION_DATA_DIR = DEFAULT_DATA_DIR / "MNIST" / "quaternion"
-    QUATERNION_DATA_DIR.mkdir(parents=True, exist_ok=True)
-
     X_quaternion_train_fpath = QUATERNION_DATA_DIR / "X_quaternion_train.npy"
     X_quaternion_test_fpath = QUATERNION_DATA_DIR / "X_quaternion_test.npy"
     X_baseline_train_fpath = QUATERNION_DATA_DIR / "X_baseline_train.npy"
@@ -147,49 +148,49 @@ def main() -> None:
     experiment_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize models
-    rng = np.random.default_rng(42)
-    q_perceptron = QuaternionPerceptron(learning_rate=0.001, batch_size=10, random_seed=42)
+    rng = np.random.RandomState(RANDOM_SEED)
+    quaternion_perceptron = QuaternionPerceptron(learning_rate=0.01, batch_size=10, random_seed=RANDOM_SEED)
     baselines = {
-        "decision_tree": DecisionTreeBaseline(random_seed=42),
-        "logistic": LogisticRegressionBaseline(random_seed=42),
-        "random": RandomChoiceBaseline(random_seed=42),
+        "decision_tree": DecisionTreeBaseline(random_seed=RANDOM_SEED),
+        "logistic": LogisticRegressionBaseline(random_seed=RANDOM_SEED),
+        "random": RandomChoiceBaseline(random_seed=RANDOM_SEED),
     }
 
+    # Convert labels to numpy array if they aren't already
+    y_train = np.array(y_train)
+    y_test = np.array(y_test)
+
     # Training loop
-    epochs = 50
+    epochs = 30
     experiment_data = {
-        "quaternion": {
-            "weight_history": [],
-            "train_accuracies": [],
-            "test_accuracies": [],
-        },
+        "quaternion": {"weight_history": [], "train_accuracies": [], "test_accuracies": []},
     }
 
     # Add baseline models to experiment data
     for name in baselines:
-        experiment_data[name] = {
-            "train_accuracies": [],
-            "test_accuracies": [],
-        }
+        experiment_data[name] = {"train_accuracies": [], "test_accuracies": []}
 
     for epoch in range(epochs):
-        # Train on shuffled data with progress bar
-        perm = rng.permutation(len(X_train))
-        pbar = tqdm(perm, desc=f"Epoch {epoch + 1}/{epochs}")
+        n_samples = len(y_train)
+        n_batches = n_samples // 100
 
-        quaternion_correct = 0
+        perm = rng.permutation(n_samples)
+        pbar = tqdm(range(n_batches), desc=f"Epoch {epoch + 1}/{epochs}")
+
+        quat_correct = 0
         for i in pbar:
-            batch_idx = perm[i : i + 100]
+            # Get batch indices
+            start_idx = i * 100
+            end_idx = start_idx + 100
+            batch_idx = perm[start_idx:end_idx]
 
             # Train quaternion model
             for idx in batch_idx:
-                quaternion_pred = q_perceptron.predict(
-                    q_perceptron.forward(
-                        np.array(list(starmap(quaternion.quaternion, X_quaternion_train[idx]))),
-                    ),
-                )
-                q_perceptron.train(X_quaternion_train[idx], y_train[idx])
-                quaternion_correct += quaternion_pred == y_train[idx]
+                inputs = np.array(list(starmap(quaternion.quaternion, X_quaternion_train[idx])))
+                target = y_train[idx]
+                quat_pred = quaternion_perceptron.predict(quaternion_perceptron.forward(inputs))
+                quaternion_perceptron.train(inputs, target)
+                quat_correct += quat_pred == target
 
             # Train baselines on batch
             baseline_accs = {
@@ -199,16 +200,16 @@ def main() -> None:
 
             # Update progress bar
             pbar.set_postfix({
-                "quaternion_acc": f"{quaternion_correct / (i + 100):.4f}",
+                "quat_acc": f"{quat_correct / ((i + 1) * 100):.4f}",
                 **{f"{k}_acc": f"{v:.4f}" for k, v in baseline_accs.items()},
             })
 
             # Record quaternion weights
-            if (i // 100) % 10 == 0:
-                w = quaternion.as_float_array(q_perceptron.weight)
+            if i % 10 == 0:
+                w = quaternion.as_float_array(quaternion_perceptron.weight)
                 experiment_data["quaternion"]["weight_history"].append({
                     "epoch": epoch,
-                    "step": i + 100,
+                    "step": i * 100,
                     "w": float(w[0]),
                     "x": float(w[1]),
                     "y": float(w[2]),
@@ -216,23 +217,21 @@ def main() -> None:
                 })
 
         # Record training accuracies
-        experiment_data["quaternion"]["train_accuracies"].append(
-            float(quaternion_correct / len(y_train)),
-        )
+        experiment_data["quaternion"]["train_accuracies"].append(float(quat_correct / n_samples))
         for name, model in baselines.items():
             train_acc = model.score(X_baseline_train, y_train)
             experiment_data[name]["train_accuracies"].append(float(train_acc))
 
         # Test accuracies
-        quaternion_test_correct = sum(
-            q_perceptron.predict(
-                q_perceptron.forward(np.array(list(starmap(quaternion.quaternion, x)))),
+        quat_test_correct = sum(
+            quaternion_perceptron.predict(
+                quaternion_perceptron.forward(np.array(list(starmap(quaternion.quaternion, x)))),
             )
             == y
             for x, y in zip(X_quaternion_test, y_test, strict=False)
         )
         experiment_data["quaternion"]["test_accuracies"].append(
-            float(quaternion_test_correct / len(y_test)),
+            float(quat_test_correct / len(y_test)),
         )
 
         for name, model in baselines.items():
@@ -241,25 +240,16 @@ def main() -> None:
 
         # Log results
         log_msg = f"Epoch {epoch + 1} complete - "
-        log_msg += f"Quaternion: {quaternion_test_correct / len(y_test):.4f}, "
+        log_msg += f"Quaternion: {quat_test_correct / len(y_test):.4f}, "
         log_msg += ", ".join(
             f"{name}: {model.score(X_baseline_test, y_test):.4f}"
             for name, model in baselines.items()
         )
         logger.info(log_msg)
 
-    # Save experiment data
-    save_experiment_data(experiment_data)
-
-
-def save_experiment_data(experiment_data: dict) -> None:
-    """Save experiment data to a JSON file."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    experiment_dir = Path("data/experiments") / timestamp
-    experiment_dir.mkdir(parents=True, exist_ok=True)
-
-    with open(experiment_dir / "experiment.json", "w", encoding="utf-8") as f:
-        json.dump(experiment_data, f, indent=2)
+        # Save experiment data
+        with open(experiment_dir / "experiment.json", "w", encoding="utf-8") as f:
+            json.dump(experiment_data, f, indent=2)
 
 
 if __name__ == "__main__":

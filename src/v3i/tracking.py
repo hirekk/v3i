@@ -10,61 +10,13 @@ def plot_weight_evolution(experiment_path: Path) -> go.Figure:
     """Create an interactive plot of weight component evolution."""
     with open(experiment_path / "experiment.json", encoding="utf-8") as f:
         data = json.load(f)
-
-    # Extract weight history
-    steps = []
-    w_comp = []
-    x_comp = []
-    y_comp = []
-    z_comp = []
-
-    for record in data["weight_history"]:
-        steps.append(record["epoch"] + record["step"] / 20000)  # normalize step to epoch
-        w_comp.append(record["w"])
-        x_comp.append(record["x"])
-        y_comp.append(record["y"])
-        z_comp.append(record["z"])
-
     # Create figure
     fig = go.Figure()
 
-    # Add traces for each component
-    fig.add_trace(
-        go.Scatter(
-            x=steps,
-            y=w_comp,
-            mode="lines",
-            name="w (real)",
-            line={"color": "blue"},
-        ),
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=steps,
-            y=x_comp,
-            mode="lines",
-            name="x (i)",
-            line={"color": "red"},
-        ),
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=steps,
-            y=y_comp,
-            mode="lines",
-            name="y (j)",
-            line={"color": "green"},
-        ),
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=steps,
-            y=z_comp,
-            mode="lines",
-            name="z (k)",
-            line={"color": "purple"},
-        ),
-    )
+    if "quaternion" in data:
+        plot_quaternion_weight_evolution(data["quaternion"]["weight_history"], fig)
+    if "octonion" in data:
+        plot_octonion_weight_evolution(data["octonion"]["weight_history"], fig)
 
     # Update layout
     fig.update_layout(
@@ -73,52 +25,210 @@ def plot_weight_evolution(experiment_path: Path) -> go.Figure:
         yaxis_title="Component Value",
         hovermode="x unified",
         template="plotly_white",
+        showlegend=True,
+        legend={
+            "yanchor": "middle",
+            "y": 0.5,
+            "xanchor": "left",
+            "x": 1.02,
+            "orientation": "v",
+        },
+        margin={"r": 150},  # Add right margin for legend
     )
 
     return fig
 
 
+def plot_quaternion_weight_evolution(weight_history: list[dict], figure: go.Figure) -> go.Figure:
+    """Create an interactive plot of weight component evolution."""
+    # Extract weight history
+    steps = []
+    w_comp = []
+    x_comp = []
+    y_comp = []
+    z_comp = []
+
+    for record in weight_history:
+        steps.append(record["epoch"] + record["step"] / 20000)  # normalize step to epoch
+        w_comp.append(record["w"])
+        x_comp.append(record["x"])
+        y_comp.append(record["y"])
+        z_comp.append(record["z"])
+
+    # Add traces once for each component
+    components = {
+        "w (real)": (w_comp, "blue"),
+        "x (i)": (x_comp, "red"),
+        "y (j)": (y_comp, "green"),
+        "z (k)": (z_comp, "purple")
+    }
+    
+    for name, (values, color) in components.items():
+        figure.add_trace(
+            go.Scatter(
+                x=steps,
+                y=values,
+                mode="lines",
+                name=name,
+                line={"color": color},
+            ),
+        )
+
+    return figure
+
+
+def plot_octonion_weight_evolution(weight_history: list[dict], figure: go.Figure) -> go.Figure:
+    """Create an interactive plot of weight component evolution."""
+    # Extract weight history
+    steps = []
+    components = {f"x{i}": [] for i in range(8)}
+    
+    # Collect all data points first
+    for record in weight_history:
+        steps.append(record["epoch"] + record["step"] / 20000)
+        for i in range(8):
+            components[f"x{i}"].append(record[f"x{i}"])
+
+    # Colors for each component
+    colors = ["blue", "red", "green", "purple", "orange", "brown", "pink", "gray"]
+    
+    # Add one trace per component
+    for (name, values), color in zip(components.items(), colors, strict=True):
+        figure.add_trace(
+            go.Scatter(
+                x=steps,
+                y=values,
+                mode="lines",
+                name=name,
+                line={"color": color},
+            ),
+        )
+
+    return figure
+
+
 def plot_accuracy_comparison(experiment_path: Path) -> go.Figure:
-    """Create comparison plot of model accuracies."""
+    """Create comparison plot showing accuracy evolution for all models."""
     with open(experiment_path / "experiment.json", encoding="utf-8") as f:
         data = json.load(f)
 
-    fig = make_subplots(rows=1, cols=2, subplot_titles=["Training Accuracy", "Test Accuracy"])
+    # Create figure with two subplots side by side
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=["Training Accuracy", "Test Accuracy"],
+        horizontal_spacing=0.1,
+    )
 
-    # Plot training accuracies
-    for model in ["quaternion", "tree", "logistic"]:
+    # Colors and display names for different models
+    model_configs = {
+        "quaternion": {"color": "blue", "display": "Quaternion Perceptron"},
+        "octonion": {"color": "purple", "display": "Octonion Perceptron"},
+        "decision_tree": {"color": "red", "display": "Decision Tree"},
+        "logistic": {"color": "green", "display": "Logistic Regression"},
+        "random": {"color": "gray", "display": "Random Baseline"},
+    }
+
+    # Plot each model's accuracies
+    for model_name, config in model_configs.items():
+        if model_name not in data:
+            continue
+
+        # Training accuracy
         fig.add_trace(
             go.Scatter(
-                x=list(range(len(data[model]["train_accuracies"]))),
-                y=data[model]["train_accuracies"],
-                name=f"{model.capitalize()} (train)",
-                line={"dash": "solid"},
+                x=list(range(len(data[model_name]["train_accuracies"]))),
+                y=[
+                    acc * 100 for acc in data[model_name]["train_accuracies"]
+                ],  # Convert to percentage
+                name=f"{config['display']} (train)",
+                line={
+                    "color": config["color"],
+                    "width": 2,
+                },
             ),
             row=1,
             col=1,
         )
 
+        # Test accuracy
         fig.add_trace(
             go.Scatter(
-                x=list(range(len(data[model]["test_accuracies"]))),
-                y=data[model]["test_accuracies"],
-                name=f"{model.capitalize()} (test)",
-                line={"dash": "dot"},
+                x=list(range(len(data[model_name]["test_accuracies"]))),
+                y=[
+                    acc * 100 for acc in data[model_name]["test_accuracies"]
+                ],  # Convert to percentage
+                name=f"{config['display']} (test)",
+                line={
+                    "color": config["color"],
+                    "width": 2,
+                    "dash": "dot",  # Dotted line for test accuracies
+                },
             ),
             row=1,
             col=2,
         )
 
+    # Update layout
     fig.update_layout(
         height=400,
         title="Model Accuracy Comparison",
-        xaxis_title="Epoch",
-        yaxis_title="Accuracy",
-        hovermode="x unified",
         template="plotly_white",
+        showlegend=True,
+        legend={
+            "yanchor": "middle",
+            "y": 0.5,
+            "xanchor": "left",
+            "x": 1.02,  # Move legend to right side
+            "orientation": "v",
+        },
+        margin={"r": 150},  # Add right margin for legend
+        hovermode="x unified",
     )
 
+    # Update axes
+    for i in range(1, 3):
+        fig.update_xaxes(
+            title_text="Epoch",
+            row=1,
+            col=i,
+            gridcolor="lightgray",
+        )
+        fig.update_yaxes(
+            title_text="Accuracy (%)",
+            row=1,
+            col=i,
+            range=[0, 100],  # Fix y-axis range from 0 to 100%
+            gridcolor="lightgray",
+            tickformat=".1f",  # Show as percentages without decimal places
+        )
+
     return fig
+
+
+def plot_metrics_change(experiment_path: Path) -> go.Figure:
+    """Create a plot of metrics change."""
+    # Display final metrics
+    with open(experiment_path / "experiment.json", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Create columns for final metrics
+    cols = st.columns(len(data))
+    for i, (model_name, model_data) in enumerate(data.items()):
+        with cols[i]:
+            display_name = {
+                "quaternion": "Quaternion Perceptron",
+                "decision_tree": "Decision Tree",
+                "logistic": "Logistic Regression",
+                "random": "Random Baseline",
+            }.get(model_name, model_name.title())
+
+            st.metric(
+                f"{display_name}",
+                f"{model_data['test_accuracies'][-1]:.1%}",
+                f"{model_data['test_accuracies'][-1] - model_data['test_accuracies'][0]:.1%}",
+                help="Final test accuracy (change from initial)",
+            )
 
 
 def launch_dashboard() -> None:
@@ -144,21 +254,14 @@ def launch_dashboard() -> None:
     acc_fig = plot_accuracy_comparison(selected_exp)
     st.plotly_chart(acc_fig, use_container_width=True)
 
-    # Plot quaternion weight evolution
+    # Metrics changeplot
+    plot_metrics_change(selected_exp)
+    # st.plotly_chart(acc_fig, use_container_width=True)
+
+    # Plot weight evolution
     weight_fig = plot_weight_evolution(selected_exp)
     st.plotly_chart(weight_fig, use_container_width=True)
 
-    # Display final metrics
-    with open(selected_exp / "experiment.json", encoding="utf-8") as f:
-        data = json.load(f)
-
-    cols = st.columns(3)
-    for i, model in enumerate(["quaternion", "tree", "logistic"]):
-        with cols[i]:
-            st.metric(
-                f"{model.capitalize()} Final Test Accuracy",
-                f"{data[model]['test_accuracies'][-1]:.4f}",
-            )
 
 
 if __name__ == "__main__":

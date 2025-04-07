@@ -1,21 +1,33 @@
 """Example of using OctonionPerceptron on MNIST to classify even vs odd digits."""
 
+from datetime import datetime
+from itertools import starmap
+import json
 import logging
+from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 from torchvision import datasets
 from tqdm.auto import tqdm
 
 from v3i.data.extract import DEFAULT_DATA_DIR
-from v3i.models.octonion_perceptron import OctonionPerceptron
+from v3i.models.baseline.decision_tree import DecisionTreeBaseline
+from v3i.models.baseline.logistic_regression import LogisticRegressionBaseline
+from v3i.models.baseline.random_choice import RandomChoiceBaseline
+from v3i.models.perceptron.octonion import Octonion
+from v3i.models.perceptron.octonion import OctonionPerceptron
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+OCTONION_DATA_DIR = DEFAULT_DATA_DIR / "MNIST" / "octonion"
+OCTONION_DATA_DIR.mkdir(parents=True, exist_ok=True)
+RANDOM_SEED = 42
 
-def is_even(digit: int) -> int:
-    """Return 1 if digit is even, 0 if odd."""
+
+def digit_to_label(digit: int) -> int:
+    """Return 1 if digit is even, -1 if odd."""
     return 1 if digit % 2 == 0 else -1
 
 
@@ -97,181 +109,172 @@ def convert_mnist_to_octonions(images: list[np.ndarray], img_size: int = 28) -> 
 
 
 def main() -> None:
-    """Main function to run the MNIST classification using OctonionPerceptron."""
-    OCTONION_DATA_DIR = DEFAULT_DATA_DIR / "MNIST" / "octonion"
-    OCTONION_DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    X_train_fpath = OCTONION_DATA_DIR / "X_train.npy"
-    X_test_fpath = OCTONION_DATA_DIR / "X_test.npy"
+    """Main function to run the MNIST classification using QuaternionPerceptron."""
+    X_octonion_train_fpath = OCTONION_DATA_DIR / "X_octonion_train.npy"
+    X_octonion_test_fpath = OCTONION_DATA_DIR / "X_octonion_test.npy"
+    X_baseline_train_fpath = OCTONION_DATA_DIR / "X_baseline_train.npy"
+    X_baseline_test_fpath = OCTONION_DATA_DIR / "X_baseline_test.npy"
     y_train_fpath = OCTONION_DATA_DIR / "y_train.npy"
     y_test_fpath = OCTONION_DATA_DIR / "y_test.npy"
 
-    if (
-        X_train_fpath.exists()
-        and X_test_fpath.exists()
-        and y_train_fpath.exists()
-        and y_test_fpath.exists()
+    if all(
+        p.exists()
+        for p in [
+            X_octonion_train_fpath,
+            X_octonion_test_fpath,
+            X_baseline_train_fpath,
+            X_baseline_test_fpath,
+            y_train_fpath,
+            y_test_fpath,
+        ]
     ):
         logger.info("Loading existing data from %s", OCTONION_DATA_DIR)
-        X_train = np.load(X_train_fpath)
-        X_test = np.load(X_test_fpath)
+        X_octonion_train = np.load(X_octonion_train_fpath)
+        X_octonion_test = np.load(X_octonion_test_fpath)
+        X_baseline_train = np.load(X_baseline_train_fpath)
+        X_baseline_test = np.load(X_baseline_test_fpath)
         y_train = np.load(y_train_fpath)
         y_test = np.load(y_test_fpath)
     else:
-        # Load MNIST dataset without normalization
-        mnist_train = datasets.MNIST(
-            root=DEFAULT_DATA_DIR,
-            train=True,
-            download=True,
-            transform=None,
-        )
-        mnist_test = datasets.MNIST(
-            root=DEFAULT_DATA_DIR,
-            train=False,
-            download=True,
-            transform=None,
-        )
+        logger.info("Converting MNIST data to octonions")
+        mnist_train = datasets.MNIST(root=DEFAULT_DATA_DIR, train=True, download=True)
+        mnist_test = datasets.MNIST(root=DEFAULT_DATA_DIR, train=False, download=True)
 
-        # Limit the number of samples to make training faster
-        train_samples = 20000
-        test_samples = 1000
+        # Use subset of data for faster training
+        train_samples, test_samples = 10000, 1000
 
-        # Extract raw images and labels
-        X_train = []
-        y_train = []
-        X_test = []
-        y_test = []
+        X_train = [np.array(mnist_train[i][0]) for i in range(train_samples)]
+        y_train = [digit_to_label(mnist_train[i][1]) for i in range(train_samples)]
+        X_test = [np.array(mnist_test[i][0]) for i in range(test_samples)]
+        y_test = [digit_to_label(mnist_test[i][1]) for i in range(test_samples)]
 
-        # Process training data
-        for i in tqdm(range(train_samples), desc="Processing training data"):
-            img, label = mnist_train[i]
-            X_train.append(np.array(img))  # Convert PIL image to numpy array
-            y_train.append(is_even(label))
+        # Preprocess data
+        scaler = StandardScaler()
+        X_octonion_train = convert_mnist_to_octonions(X_train)
+        X_octonion_test = convert_mnist_to_octonions(X_test)
+        X_baseline_train = scaler.fit_transform([img.flatten() for img in X_train])
+        X_baseline_test = scaler.transform([img.flatten() for img in X_test])
 
-        # Process test data
-        for i in tqdm(range(test_samples), desc="Processing test data"):
-            img, label = mnist_test[i]
-            X_test.append(np.array(img))
-            y_test.append(is_even(label))
-
-        # Convert to numpy arrays
-        X_train = np.array(X_train)
-        y_train = np.array(y_train)
-        X_test = np.array(X_test)
-        y_test = np.array(y_test)
-
-        # Save labels
+        # Save processed data
+        np.save(OCTONION_DATA_DIR / "X_octonion_train.npy", X_octonion_train)
+        np.save(OCTONION_DATA_DIR / "X_octonion_test.npy", X_octonion_test)
+        np.save(OCTONION_DATA_DIR / "X_baseline_train.npy", X_baseline_train)
+        np.save(OCTONION_DATA_DIR / "X_baseline_test.npy", X_baseline_test)
         np.save(OCTONION_DATA_DIR / "y_train.npy", y_train)
-        logger.info("Saved training labels to %s", OCTONION_DATA_DIR / "y_train.npy")
         np.save(OCTONION_DATA_DIR / "y_test.npy", y_test)
-        logger.info("Saved test labels to %s", OCTONION_DATA_DIR / "y_test.npy")
 
-        # Convert to octonion representation
-        X_train = convert_mnist_to_octonions(X_train)
-        logger.info("Converted training data to octonions")
-        X_test = convert_mnist_to_octonions(X_test)
-        logger.info("Converted test data to octonions")
+    # Setup experiment tracking
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_dir = Path("data/experiments") / timestamp
+    experiment_dir.mkdir(parents=True, exist_ok=True)
 
-        np.save(OCTONION_DATA_DIR / "X_train.npy", X_train)
-        logger.info("Saved training data to %s", OCTONION_DATA_DIR / "X_train.npy")
-        np.save(OCTONION_DATA_DIR / "X_test.npy", X_test)
-        logger.info("Saved test data to %s", OCTONION_DATA_DIR / "X_test.npy")
+    # Initialize models
+    rng = np.random.RandomState(RANDOM_SEED)
+    octonion_perceptron = OctonionPerceptron(learning_rate=0.01, batch_size=10, random_seed=RANDOM_SEED)
+    baselines = {
+        "decision_tree": DecisionTreeBaseline(random_seed=RANDOM_SEED),
+        "logistic": LogisticRegressionBaseline(random_seed=RANDOM_SEED),
+        "random": RandomChoiceBaseline(random_seed=RANDOM_SEED),
+    }
 
-    # Create and train model
-    input_size = 28 * 28  # Full image size
-    model = OctonionPerceptron(input_size=input_size, learning_rate=0.01)
+    # Convert labels to numpy array if they aren't already
+    y_train = np.array(y_train)
+    y_test = np.array(y_test)
 
-    # Training
-    epochs = 10
-    train_accuracies = []
-    test_accuracies = []
-    rng = np.random.default_rng()
+    # Training loop
+    epochs = 30
+    experiment_data = {
+        "octonion": {"weight_history": [], "train_accuracies": [], "test_accuracies": []},
+    }
 
-    for epoch in tqdm(range(epochs), desc="Epochs"):
-        # Shuffle training data
-        X_train_shuffled = rng.permutation(X_train)
-        y_train_shuffled = rng.permutation(y_train)
+    # Add baseline models to experiment data
+    for name in baselines:
+        experiment_data[name] = {"train_accuracies": [], "test_accuracies": []}
 
-        # Train on each example
-        correct_train = 0
+    for epoch in range(epochs):
+        n_samples = len(y_train)
+        n_batches = n_samples // 100
 
-        for i, (inputs, target) in tqdm(
-            enumerate(zip(X_train_shuffled, y_train_shuffled, strict=False)),
-            desc="Training",
-            total=len(y_train),
-        ):
-            model.train(inputs, target)
+        perm = rng.permutation(n_samples)
+        pbar = tqdm(range(n_batches), desc=f"Epoch {epoch + 1}/{epochs}")
 
-            # Check prediction
-            result = model.forward(inputs)
-            prediction = 1 if float(result[0]) >= 0 else -1
-            if prediction == target:
-                correct_train += 1
+        octonion_correct = 0
+        for i in pbar:
+            # Get batch indices
+            start_idx = i * 100
+            end_idx = start_idx + 100
+            batch_idx = perm[start_idx:end_idx]
 
-            # Print progress
-            if (i + 1) % 100 == 0:
-                logger.info("Training accuracy: %f", correct_train / (i + 1))
-                model.apply_updates()
-                logger.info("First three weights: %s", model.weights[:3])
+            # Train octonion model
+            for idx in batch_idx:
+                inputs = np.array(list(starmap(Octonion, X_octonion_train[idx])))
+                target = y_train[idx]
+                octonion_pred = octonion_perceptron.predict(octonion_perceptron.forward(inputs))
+                octonion_perceptron.train(inputs, target)
+                octonion_correct += octonion_pred == target
 
-        # Calculate training accuracy
-        train_accuracy = correct_train / len(y_train)
-        train_accuracies.append(train_accuracy)
+            # Train baselines on batch
+            baseline_accs = {
+                name: model.fit_batch(X_baseline_train[batch_idx], y_train[batch_idx])
+                for name, model in baselines.items()
+            }
 
-        # Calculate test accuracy
-        correct_test = 0
-        logger.info("Calculating test accuracy at epoch %d", epoch)
-        for inputs, target in zip(X_test, y_test, strict=False):
-            result = model.forward(inputs)
-            prediction = 1 if float(result[0]) >= 0 else -1
-            if prediction == target:
-                correct_test += 1
+            # Update progress bar
+            pbar.set_postfix({
+                "octonion_acc": f"{octonion_correct / ((i + 1) * 100):.4f}",
+                **{f"{k}_acc": f"{v:.4f}" for k, v in baseline_accs.items()},
+            })
 
-        test_accuracy = correct_test / len(y_test)
-        logger.info("Test accuracy at epoch %d: %f", epoch, test_accuracy)
-        test_accuracies.append(test_accuracy)
+            # Record octonion weights
+            if i % 10 == 0:
+                w = octonion_perceptron.weight
+                experiment_data["octonion"]["weight_history"].append({
+                    "epoch": epoch,
+                    "step": i * 100,
+                    "x0": float(w[0]),
+                    "x1": float(w[1]),
+                    "x2": float(w[2]),
+                    "x3": float(w[3]),
+                    "x4": float(w[4]),
+                    "x5": float(w[5]),
+                    "x6": float(w[6]),
+                    "x7": float(w[7]),
+                })
 
-    # Plot results
-    plt.figure(figsize=(10, 6))
-    plt.plot(range(1, epochs + 1), train_accuracies, label="Training Accuracy")
-    plt.plot(range(1, epochs + 1), test_accuracies, label="Test Accuracy")
-    plt.xlabel("Epoch")
-    plt.ylabel("Accuracy")
-    plt.title("Octonion Perceptron on MNIST (Even vs Odd)")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig("octonion_perceptron_mnist_even_odd.png")
-    plt.show()
+        # Record training accuracies
+        experiment_data["octonion"]["train_accuracies"].append(float(octonion_correct / n_samples))
+        for name, model in baselines.items():
+            train_acc = model.score(X_baseline_train, y_train)
+            experiment_data[name]["train_accuracies"].append(float(train_acc))
 
-    # Visualize some predictions
-    plt.figure(figsize=(15, 8))
-    for i in range(10):
-        # Get a sample from each class (even and odd)
-        even_idx = np.where(y_test == 1)[0][i]
-        odd_idx = np.where(y_test == -1)[0][i]
+        # Test accuracies
+        octonion_test_correct = sum(
+            octonion_perceptron.predict(
+                octonion_perceptron.forward(np.array(list(starmap(Octonion, x)))),
+            )
+            == y
+            for x, y in zip(X_octonion_test, y_test, strict=False)
+        )
+        experiment_data["octonion"]["test_accuracies"].append(
+            float(octonion_test_correct / len(y_test)),
+        )
 
-        # Make predictions
-        even_result = model.forward(X_test[even_idx])
-        even_pred = 1 if float(even_result[0]) >= 0 else -1
+        for name, model in baselines.items():
+            test_acc = model.score(X_baseline_test, y_test)
+            experiment_data[name]["test_accuracies"].append(float(test_acc))
 
-        odd_result = model.forward(X_test[odd_idx])
-        odd_pred = 1 if float(odd_result[0]) >= 0 else -1
+        # Log results
+        log_msg = f"Epoch {epoch + 1} complete - "
+        log_msg += f"Octonion: {octonion_test_correct / len(y_test):.4f}, "
+        log_msg += ", ".join(
+            f"{name}: {model.score(X_baseline_test, y_test):.4f}"
+            for name, model in baselines.items()
+        )
+        logger.info(log_msg)
 
-        # Plot even example
-        plt.subplot(2, 10, i + 1)
-        plt.imshow(X_test[even_idx], cmap="gray")
-        plt.title(f"Even\nPred: {'Even' if even_pred == 1 else 'Odd'}")
-        plt.axis("off")
-
-        # Plot odd example
-        plt.subplot(2, 10, i + 11)
-        plt.imshow(X_test[odd_idx], cmap="gray")
-        plt.title(f"Odd\nPred: {'Even' if odd_pred == 1 else 'Odd'}")
-        plt.axis("off")
-
-    plt.tight_layout()
-    plt.savefig("octonion_perceptron_mnist_predictions.png")
-    plt.show()
+        # Save experiment data
+        with open(experiment_dir / "experiment.json", "w", encoding="utf-8") as f:
+            json.dump(experiment_data, f, indent=2)
 
 
 if __name__ == "__main__":

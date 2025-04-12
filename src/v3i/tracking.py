@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 
-def plot_weight_evolution(experiment_path: Path) -> go.Figure:
+def plot_action_evolution(experiment_path: Path) -> go.Figure:
     """Create an interactive plot of weight component evolution."""
     with open(experiment_path / "experiment.json", encoding="utf-8") as f:
         data = json.load(f)
@@ -14,13 +14,46 @@ def plot_weight_evolution(experiment_path: Path) -> go.Figure:
     fig = go.Figure()
 
     if "quaternion" in data:
-        plot_quaternion_weight_evolution(data["quaternion"]["weight_history"], fig)
+        plot_quaternion_weight_evolution(data["quaternion"]["action_history"], fig)
     if "octonion" in data:
-        plot_octonion_weight_evolution(data["octonion"]["weight_history"], fig)
+        plot_octonion_weight_evolution(data["octonion"]["action_history"], fig)
 
     # Update layout
     fig.update_layout(
-        title="Weight Components Evolution",
+        title="Action Components Evolution",
+        xaxis_title="Epoch",
+        yaxis_title="Component Value",
+        hovermode="x unified",
+        template="plotly_white",
+        showlegend=True,
+        legend={
+            "yanchor": "middle",
+            "y": 0.5,
+            "xanchor": "left",
+            "x": 1.02,
+            "orientation": "v",
+        },
+        margin={"r": 150},  # Add right margin for legend
+    )
+
+    return fig
+
+
+def plot_bias_evolution(experiment_path: Path) -> go.Figure:
+    """Create an interactive plot of weight component evolution."""
+    with open(experiment_path / "experiment.json", encoding="utf-8") as f:
+        data = json.load(f)
+    # Create figure
+    fig = go.Figure()
+
+    if "quaternion" in data:
+        plot_quaternion_weight_evolution(data["quaternion"]["bias_history"], fig)
+    if "octonion" in data:
+        plot_octonion_weight_evolution(data["octonion"]["bias_history"], fig)
+
+    # Update layout
+    fig.update_layout(
+        title="Bias Components Evolution",
         xaxis_title="Epoch",
         yaxis_title="Component Value",
         hovermode="x unified",
@@ -60,9 +93,9 @@ def plot_quaternion_weight_evolution(weight_history: list[dict], figure: go.Figu
         "w (real)": (w_comp, "blue"),
         "x (i)": (x_comp, "red"),
         "y (j)": (y_comp, "green"),
-        "z (k)": (z_comp, "purple")
+        "z (k)": (z_comp, "purple"),
     }
-    
+
     for name, (values, color) in components.items():
         figure.add_trace(
             go.Scatter(
@@ -82,7 +115,7 @@ def plot_octonion_weight_evolution(weight_history: list[dict], figure: go.Figure
     # Extract weight history
     steps = []
     components = {f"x{i}": [] for i in range(8)}
-    
+
     # Collect all data points first
     for record in weight_history:
         steps.append(record["epoch"] + record["step"] / 10_000)
@@ -91,7 +124,7 @@ def plot_octonion_weight_evolution(weight_history: list[dict], figure: go.Figure
 
     # Colors for each component
     colors = ["blue", "red", "green", "purple", "orange", "brown", "pink", "gray"]
-    
+
     # Add one trace per component
     for (name, values), color in zip(components.items(), colors, strict=True):
         figure.add_trace(
@@ -259,9 +292,11 @@ def launch_dashboard() -> None:
     # st.plotly_chart(acc_fig, use_container_width=True)
 
     # Plot weight evolution
-    weight_fig = plot_weight_evolution(selected_exp)
-    st.plotly_chart(weight_fig, use_container_width=True)
+    action_fig = plot_action_evolution(selected_exp)
+    st.plotly_chart(action_fig, use_container_width=True)
 
+    bias_fig = plot_bias_evolution(selected_exp)
+    st.plotly_chart(bias_fig, use_container_width=True)
 
 
 if __name__ == "__main__":

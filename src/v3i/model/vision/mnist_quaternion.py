@@ -1,15 +1,12 @@
 """Example of using QuaternionPerceptron on MNIST to classify even vs odd digits."""
 
 from datetime import datetime
-from itertools import starmap
 import json
 import logging
 from pathlib import Path
 
 import numpy as np
 import quaternion
-from sklearn.preprocessing import StandardScaler
-from torchvision import datasets
 from tqdm.auto import tqdm
 
 from v3i.data.extract import DEFAULT_DATA_DIR
@@ -24,11 +21,6 @@ logger = logging.getLogger(__name__)
 QUATERNION_DATA_DIR = DEFAULT_DATA_DIR / "MNIST" / "quaternion"
 QUATERNION_DATA_DIR.mkdir(parents=True, exist_ok=True)
 RANDOM_SEED = 42
-
-
-def digit_to_label(digit: int) -> int:
-    """Return 1 if digit is even, -1 if odd."""
-    return 1 if digit % 2 == 0 else -1
 
 
 def create_quaternion_from_pixel(
@@ -57,11 +49,123 @@ def create_quaternion_from_pixel(
     return quaternion.as_float_array(quaternion.quaternion(w, x, y, z))
 
 
-def convert_mnist_to_quaternions(images: list[np.ndarray], img_size: int = 28) -> np.ndarray:
-    """Convert MNIST images to lists of quaternions."""
+def spiral_iterate():
+    directions = [  # counter-clockwise
+        (-1, 0),  # up
+        (0, -1),  # left
+        (1, 0),  # down
+        (0, 1),  # right
+    ]
+    curr_steps = 1
+    next_steps = 1
+    curr_dir = 0
+    x, y = 0, 0
+    while True:
+        for _ in range(curr_steps):
+            yield x, y
+            x += directions[curr_dir][0]
+            y += directions[curr_dir][1]
+        curr_steps = next_steps
+        if curr_dir % 2 == 0:
+            next_steps += 1
+        curr_dir = (curr_dir + 1) % 4
+
+
+def test_spiral_iterate() -> None:
+    spiral = spiral_iterate()
+    for i, _coords in enumerate(spiral):
+        if i > 10:
+            break
+
+
+def generate_receptor_tuples(
+    img_size: int,
+    tuple_size: int = 4,
+    sigma: float = 2.0,
+    random_seed: int = 42,
+) -> np.ndarray:
+    """Generate tuples of values from nearby locations in a grid.
+
+    Args:
+        img_size: Size of the image.
+        tuple_size: Size of each tuple (default 4).
+        sigma: Standard deviation for the normal distribution (controls spread).
+        random_seed: Seed for the random number generator.
+
+    Returns:
+        Array of shape (n_tuples, tuple_size) containing the sampled values
+    """
+    rng = np.random.default_rng(seed=random_seed)
+    used = set()
+    height, width = img_size, img_size
+    n_tuples = height * width // tuple_size
+    # Array of tuples of 2d coordinates
+    result = np.empty((n_tuples, tuple_size, 2), dtype=int)
+    step_x = int(np.sqrt(tuple_size))
+    step_y = round(np.sqrt(tuple_size))
+
+    start_x = width % 2
+    start_y = 0
+    tuple_idx = 0
+
+    centers = [
+        (x, y) for x in range(start_x, width, step_x) for y in range(start_y, height, step_y)
+    ]
+
+    centers_shuffled = rng.permutation(centers)
+
+    for tuple_idx, (center_x, center_y) in enumerate(centers_shuffled):
+        for j in range(tuple_size):
+            miss_count = 0
+            while True:
+                # Sample x, y offsets from normal distribution
+                dx = round(rng.normal(0, sigma))
+                dy = round(rng.normal(0, sigma))
+
+                # Calculate sample coordinates
+                x = center_x + dx
+                y = center_y + dy
+
+                # Check if coordinates are within grid bounds
+                if 0 <= x < width and 0 <= y < height and (x, y) not in used:
+                    result[tuple_idx, j] = (x, y)
+                    used.add((x, y))
+                    miss_count = 0
+                    break
+
+                miss_count += 1
+                logger.warning("[%d] Missed (#%d): (%d, %d)", tuple_idx, miss_count, x, y)
+                if miss_count == 1000:
+                    for dx, dy in spiral_iterate():
+                        x = center_x + dx
+                        y = center_y + dy
+                        if 0 <= x < width and 0 <= y < height and (x, y) not in used:
+                            result[tuple_idx, j] = (x, y)
+                            used.add((x, y))
+                            miss_count = 0
+                            break
+                    break
+
+    return result
+
+
+def convert_mnist_to_quaternion_receptors(
+    images: list[np.ndarray],
+    img_size: int = 28,
+    tuple_size: int = 4,
+    sigma: float = 2.0,
+    random_seed: int = 42,
+) -> np.ndarray:
+    """Convert MNIST images to lists of quaternion receptors."""
+    receptor_coords = generate_receptor_tuples(
+        img_size=img_size,
+        tuple_size=tuple_size,
+        sigma=sigma,
+        random_seed=random_seed,
+    )
     quaternion_images = []
 
-    for img in tqdm(images, desc="Converting images to quaternions"):
+    for img in tqdm(images, desc="Converting images to quaternion receptors"):
         # Reshape to 2D if flattened
         img_2d = img.reshape(img_size, img_size) if img.ndim == 1 else img
 
@@ -69,20 +173,13 @@ def convert_mnist_to_quaternions(images: list[np.ndarray], img_size: int = 28) -
         img_2d = (img_2d / 127.5) - 1.0
 
         # Create quaternion for each pixel
-        quaternion_pixels = []
-        for y in range(img_size):
-            for x in range(img_size):
-                pixel_value = img_2d[y, x]
-                quaternion_pixels.append(
-                    create_quaternion_from_pixel(
-                        pixel_value=pixel_value,
-                        x_pos=x,
-                        y_pos=y,
-                        img_size=img_size,
-                    ),
-                )
-
-        quaternion_images.append(quaternion_pixels)
+        quaternion_receptors = []
+        for receptor in receptor_coords:
+            quaternion = np.zeros(tuple_size, dtype=np.float32)
+            for j, (x, y) in enumerate(receptor):
+                quaternion[j] = img_2d[y, x]
+            quaternion_receptors.append(quaternion)
+        quaternion_images.append(np.array(quaternion_receptors))
 
     return np.array(quaternion_images)
 
@@ -114,33 +211,6 @@ def main() -> None:
         X_baseline_test = np.load(X_baseline_test_fpath)
         y_train = np.load(y_train_fpath)
         y_test = np.load(y_test_fpath)
-    else:
-        logger.info("Converting MNIST data to quaternions")
-        mnist_train = datasets.MNIST(root=DEFAULT_DATA_DIR, train=True, download=True)
-        mnist_test = datasets.MNIST(root=DEFAULT_DATA_DIR, train=False, download=True)
-
-        # Use subset of data for faster training
-        train_samples, test_samples = 10000, 1000
-
-        X_train = [np.array(mnist_train[i][0]) for i in range(train_samples)]
-        y_train = [digit_to_label(mnist_train[i][1]) for i in range(train_samples)]
-        X_test = [np.array(mnist_test[i][0]) for i in range(test_samples)]
-        y_test = [digit_to_label(mnist_test[i][1]) for i in range(test_samples)]
-
-        # Preprocess data
-        scaler = StandardScaler()
-        X_quaternion_train = convert_mnist_to_quaternions(X_train)
-        X_quaternion_test = convert_mnist_to_quaternions(X_test)
-        X_baseline_train = scaler.fit_transform([img.flatten() for img in X_train])
-        X_baseline_test = scaler.transform([img.flatten() for img in X_test])
-
-        # Save processed data
-        np.save(QUATERNION_DATA_DIR / "X_quaternion_train.npy", X_quaternion_train)
-        np.save(QUATERNION_DATA_DIR / "X_quaternion_test.npy", X_quaternion_test)
-        np.save(QUATERNION_DATA_DIR / "X_baseline_train.npy", X_baseline_train)
-        np.save(QUATERNION_DATA_DIR / "X_baseline_test.npy", X_baseline_test)
-        np.save(QUATERNION_DATA_DIR / "y_train.npy", y_train)
-        np.save(QUATERNION_DATA_DIR / "y_test.npy", y_test)
 
     # Setup experiment tracking
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -149,7 +219,12 @@ def main() -> None:
 
     # Initialize models
     rng = np.random.RandomState(RANDOM_SEED)
-    quaternion_perceptron = QuaternionPerceptron(learning_rate=0.01, batch_size=10, random_seed=RANDOM_SEED)
+    quaternion_perceptron = QuaternionPerceptron(
+        forward_type="average",
+        learning_rate=0.01,
+        # buffer_size=100,
+        # random_seed=RANDOM_SEED,
+    )
     baselines = {
         "decision_tree": DecisionTreeBaseline(random_seed=RANDOM_SEED),
         "logistic": LogisticRegressionBaseline(random_seed=RANDOM_SEED),
@@ -161,9 +236,14 @@ def main() -> None:
     y_test = np.array(y_test)
 
     # Training loop
-    epochs = 30
+    epochs = 10
     experiment_data = {
-        "quaternion": {"weight_history": [], "train_accuracies": [], "test_accuracies": []},
+        "quaternion": {
+            "bias_history": [],
+            "action_history": [],
+            "train_accuracies": [],
+            "test_accuracies": [],
+        },
     }
 
     # Add baseline models to experiment data
@@ -186,9 +266,9 @@ def main() -> None:
 
             # Train quaternion model
             for idx in batch_idx:
-                inputs = np.array(list(starmap(quaternion.quaternion, X_quaternion_train[idx])))
+                inputs = X_quaternion_train[idx]
                 target = y_train[idx]
-                quat_pred = quaternion_perceptron.predict(quaternion_perceptron.forward(inputs))
+                quat_pred = quaternion_perceptron.predict_label(inputs)
                 quaternion_perceptron.train(inputs, target)
                 quat_correct += quat_pred == target
 
@@ -205,15 +285,25 @@ def main() -> None:
             })
 
             # Record quaternion weights
-            if i % 10 == 0:
-                w = quaternion.as_float_array(quaternion_perceptron.weight)
-                experiment_data["quaternion"]["weight_history"].append({
+            if i % 100 == 0:
+                b = quaternion.as_float_array(quaternion_perceptron.bias)
+                experiment_data["quaternion"]["bias_history"].append({
                     "epoch": epoch,
                     "step": i * 100,
-                    "w": float(w[0]),
-                    "x": float(w[1]),
-                    "y": float(w[2]),
-                    "z": float(w[3]),
+                    "w": float(b[0]),
+                    "x": float(b[1]),
+                    "y": float(b[2]),
+                    "z": float(b[3]),
+                })
+
+                a = quaternion.as_float_array(quaternion_perceptron.action)
+                experiment_data["quaternion"]["action_history"].append({
+                    "epoch": epoch,
+                    "step": i * 100,
+                    "w": float(a[0]),
+                    "x": float(a[1]),
+                    "y": float(a[2]),
+                    "z": float(a[3]),
                 })
 
         # Record training accuracies
@@ -224,10 +314,7 @@ def main() -> None:
 
         # Test accuracies
         quat_test_correct = sum(
-            quaternion_perceptron.predict(
-                quaternion_perceptron.forward(np.array(list(starmap(quaternion.quaternion, x)))),
-            )
-            == y
+            quaternion_perceptron.predict_label(x) == y
             for x, y in zip(X_quaternion_test, y_test, strict=False)
         )
         experiment_data["quaternion"]["test_accuracies"].append(
@@ -250,6 +337,18 @@ def main() -> None:
         # Save experiment data
         with open(experiment_dir / "experiment.json", "w", encoding="utf-8") as f:
             json.dump(experiment_data, f, indent=2)
+
+    # Record predictions.
+    predictions = []
+    for x, y in zip(X_quaternion_test, y_test, strict=False):
+        q_in, q_out = quaternion_perceptron.predict(x)
+        predictions.append({
+            "target": int(y),
+            "input_reduced": quaternion.as_float_array(q_in).tolist(),
+            "prediction": quaternion.as_float_array(q_out).tolist(),
+        })
+    with open(experiment_dir / "predictions.json", "w", encoding="utf-8") as f:
+        json.dump(predictions, f, indent=2)
 
 
 if __name__ == "__main__":

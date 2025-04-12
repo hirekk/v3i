@@ -170,7 +170,11 @@ def main() -> None:
 
     # Initialize models
     rng = np.random.RandomState(RANDOM_SEED)
-    octonion_perceptron = OctonionPerceptron(learning_rate=0.01, batch_size=10, random_seed=RANDOM_SEED)
+    octonion_perceptron = OctonionPerceptron(
+        learning_rate=0.01,
+        batch_size=10,
+        random_seed=RANDOM_SEED,
+    )
     baselines = {
         "decision_tree": DecisionTreeBaseline(random_seed=RANDOM_SEED),
         "logistic": LogisticRegressionBaseline(random_seed=RANDOM_SEED),

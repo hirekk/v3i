@@ -9,7 +9,7 @@ from .base import BaselineModel
 class DecisionTreeBaseline(BaselineModel):
     """Decision tree model."""
 
-    def __init__(self, max_depth: int = 2, max_leaf_nodes: int = 4, random_seed: int = 42) -> None:
+    def __init__(self, max_depth: int = 1, max_leaf_nodes: int = 4, random_seed: int = 42) -> None:
         self.model = DecisionTreeClassifier(
             max_depth=max_depth,
             max_leaf_nodes=max_leaf_nodes,

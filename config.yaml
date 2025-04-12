@@ -1,0 +1,17 @@
+model: quaternion
+experiment:
+  dataset: MNIST
+  random_seed: 42
+  epochs: 10
+model:
+  learning_rate: 0.01
+  forward_type: average
+  buffer_size: 100
+baselines:
+  decision_tree:
+    max_depth: 1
+    max_leaf_nodes: 4
+  logistic_regression:
+    learning_rate: 0.01
+    max_iter: 100
+    tol: 1e-4

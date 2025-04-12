@@ -6,14 +6,21 @@ for weights, inputs, and outputs instead of real numbers.
 
 from __future__ import annotations
 
+import datetime
+import json
 import logging
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 
 import numpy as np
 import quaternion
-
-from v3i.data import load_mnist
-from v3i.data import load_xor
+from tqdm import tqdm
+from v3i.data import DatasetType
+from v3i.data import load_mnist_data
+from v3i.data import load_xor_data
+from v3i.models.baseline import DecisionTreeBaseline
+from v3i.models.baseline import LogisticRegressionBaseline
+from v3i.models.baseline import RandomChoiceBaseline
 
 logger = logging.getLogger(__name__)
 
@@ -453,9 +460,152 @@ class QuaternionPerceptron:
         return u_b, u_residual, u_a
 
 
-def main(dataset: str) -> None:
+def run(
+    config: dict[str, Any],
+) -> None:
+    """Run a quaternion perceptron experiment.
+
+    Args:
+        config: Configuration for the run.
+    """
+    experiment_config = config["experiment"]
+    model_config = config["model"]
+    baselines_config = config.get("baselines", {})
+
+    dataset = experiment_config["dataset"]
+    rng = np.random.RandomState(seed=experiment_config.get("random_seed"))
+
     """Main function to run the quaternion perceptron."""
-    if dataset == "mnist":
-        _X_train, _y_train, _X_test, _y_test = load_mnist(model="quaternion")
-    elif dataset == "xor":
-        _X_train, _y_train, _X_test, _y_test = load_xor(dimensionality=8)
+    match dataset:
+        case DatasetType.MNIST:
+            X_train, y_train, X_test, y_test = load_mnist_data(model="quaternion")
+            X_baseline_train, y_baseline_train, X_baseline_test, y_baseline_test = load_mnist_data(model="baseline")
+        case DatasetType.XOR:
+            X_train, y_train, X_test, y_test = load_xor_data(dimensionality=4)
+            X_baseline_train, y_baseline_train, X_baseline_test, y_baseline_test = load_xor_data(dimensionality=4)
+        case _:
+            err_msg = f"Invalid dataset: {dataset}"
+            raise ValueError(err_msg)
+
+    # Setup experiment tracking
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_dir = Path("data/experiments") / timestamp
+    experiment_dir.mkdir(parents=True, exist_ok=True)
+    experiment_data = {
+        "config": config,
+        "model": {
+            "bias_history": [],
+            "action_history": [],
+            "train_accuracies": [],
+            "test_accuracies": [],
+        },
+        "baselines": {},
+    }
+
+    # Initialize models
+    logger.info("Initializing model with config: %s", model_config)
+    model = QuaternionPerceptron(**model_config)
+
+    baselines = {}
+    for baseline_name, baseline_config in baselines_config.items():
+        logger.info("Initializing baseline with config: %s", baseline_config)
+        match baseline_name:
+            case "decision_tree":
+                baseline = DecisionTreeBaseline(**baseline_config)
+            case "logistic_regression":
+                baseline = LogisticRegressionBaseline(**baseline_config)
+            case "random_choice":
+                baseline = RandomChoiceBaseline(**baseline_config)
+            case _:
+                err_msg = f"Invalid baseline: {baseline_name}"
+                raise ValueError(err_msg)
+        baselines[baseline_name] = baseline
+        experiment_data["baselines"][baseline_name] = {
+            "train_accuracy": None,
+            "test_accuracy": None,
+        }
+
+    # Train baselines
+    for baseline_name, baseline_model in baselines.items():
+        baseline_model.fit(X_baseline_train, y_baseline_train)
+
+    # Record baseline accuracies
+    for baseline_name, baseline_model in baselines.items():
+        train_acc = baseline_model.score(X_baseline_train, y_baseline_train)
+        experiment_data["baselines"][baseline_name]["train_accuracy"] = float(train_acc)
+
+        test_acc = baseline_model.score(X_baseline_test, y_baseline_test)
+        experiment_data["baselines"][baseline_name]["test_accuracy"] = float(test_acc)
+
+    # Training loop
+    num_epochs = experiment_config["epochs"]
+    for epoch in range(num_epochs):
+        n_samples = len(y_train)
+
+        perm = rng.permutation(n_samples)
+        pbar = tqdm(range(n_samples), desc=f"Epoch {epoch + 1}/{num_epochs}")
+
+        num_train_correct = 0
+        for i in pbar:
+            # Train quaternion model
+            x = X_train[perm[i]]
+            y_true = y_train[perm[i]]
+            model.train(x, y)
+            y_pred = model.predict_label(x)
+            num_train_correct += y_pred == y_true
+
+            # Update progress bar
+            if i % 100 == 0:
+                pbar.set_postfix({
+                    "train_acc": f"{num_train_correct / ((i + 1) * 100):.4f}",
+                })
+
+            # Record quaternion weights
+            if i % 100 == 0:
+                experiment_data["quaternion"]["bias_history"].append({
+                    "epoch": epoch,
+                    "step": i * 100,
+                    "w": float(model.bias.w),
+                    "x": float(model.bias.x),
+                    "y": float(model.bias.y),
+                    "z": float(model.bias.z),
+                })
+
+                experiment_data["quaternion"]["action_history"].append({
+                    "epoch": epoch,
+                    "step": i * 100,
+                    "w": float(model.action.w),
+                    "x": float(model.action.x),
+                    "y": float(model.action.y),
+                    "z": float(model.action.z),
+                })
+
+        # Record training accuracies
+        experiment_data["quaternion"]["train_accuracies"].append(float(num_train_correct / n_samples))
+
+        # Test accuracies
+        num_test_correct = sum(
+            model.predict_label(x) == y
+            for x, y in zip(X_test, y_test, strict=False)
+        )
+        experiment_data["quaternion"]["test_accuracies"].append(
+            float(num_test_correct / len(y_test)),
+        )
+
+        # Save experiment data
+        experiment_filepath = experiment_dir / "experiment.json"
+        with experiment_filepath.open(mode="w", encoding="utf-8") as f:
+            json.dump(experiment_data, f, indent=2)
+
+    # Record predictions
+    predictions_filepath = experiment_dir / "predictions.json"
+    predictions = []
+    for x, y in zip(X_test, y_test, strict=False):
+        q_in, q_out = model.predict(x)
+        predictions.append({
+            "target": int(y),
+            "input_reduced": quaternion.as_float_array(q_in).tolist(),
+            "prediction": quaternion.as_float_array(q_out).tolist(),
+        })
+    with predictions_filepath.open(mode="w", encoding="utf-8") as f:
+        json.dump(predictions, f, indent=2)

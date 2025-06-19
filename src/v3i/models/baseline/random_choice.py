@@ -12,7 +12,7 @@ class RandomChoiceBaseline(BaselineModel):
         self.rng = np.random.default_rng(random_seed)
         self.classes = [-1, 1]  # Even/odd labels
 
-    def fit_batch(self, X: np.ndarray, y: np.ndarray) -> float:
+    def fit(self, X: np.ndarray, y: np.ndarray) -> float:
         """No fitting needed, return random accuracy."""
         predictions = self.predict(X)
         return np.mean(predictions == y)

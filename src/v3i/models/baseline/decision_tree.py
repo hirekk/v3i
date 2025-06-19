@@ -17,7 +17,7 @@ class DecisionTreeBaseline(BaselineModel):
         )
         self.is_fitted = False
 
-    def fit_batch(self, X: np.ndarray, y: np.ndarray) -> float:
+    def fit(self, X: np.ndarray, y: np.ndarray) -> float:
         """Fit on a batch of data and return accuracy."""
         self.model.fit(X, y)
         self.is_fitted = True

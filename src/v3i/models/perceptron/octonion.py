@@ -444,3 +444,8 @@ class OctonionPerceptron:
 
                 # Reset buffer
                 self.update_buffer = []
+
+
+def run(
+    config: dict[str, Any],
+) -> None: ...

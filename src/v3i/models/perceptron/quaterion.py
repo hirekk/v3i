@@ -15,9 +15,10 @@ from typing import Any, Literal
 import numpy as np
 import quaternion
 from tqdm import tqdm
-from v3i.data import DatasetType
-from v3i.data import load_mnist_data
-from v3i.data import load_xor_data
+
+from v3i.data.dataset import DatasetType
+from v3i.data.mnist import load_mnist_data
+from v3i.data.xor import load_xor_data
 from v3i.models.baseline import DecisionTreeBaseline
 from v3i.models.baseline import LogisticRegressionBaseline
 from v3i.models.baseline import RandomChoiceBaseline
@@ -460,9 +461,7 @@ class QuaternionPerceptron:
         return u_b, u_residual, u_a
 
 
-def run(
-    config: dict[str, Any],
-) -> None:
+def run(config: dict[str, Any]) -> None:
     """Run a quaternion perceptron experiment.
 
     Args:
@@ -479,10 +478,14 @@ def run(
     match dataset:
         case DatasetType.MNIST:
             X_train, y_train, X_test, y_test = load_mnist_data(model="quaternion")
-            X_baseline_train, y_baseline_train, X_baseline_test, y_baseline_test = load_mnist_data(model="baseline")
+            X_baseline_train, y_baseline_train, X_baseline_test, y_baseline_test = load_mnist_data(
+                model="baseline",
+            )
         case DatasetType.XOR:
             X_train, y_train, X_test, y_test = load_xor_data(dimensionality=4)
-            X_baseline_train, y_baseline_train, X_baseline_test, y_baseline_test = load_xor_data(dimensionality=4)
+            X_baseline_train, y_baseline_train, X_baseline_test, y_baseline_test = load_xor_data(
+                dimensionality=4,
+            )
         case _:
             err_msg = f"Invalid dataset: {dataset}"
             raise ValueError(err_msg)
@@ -550,7 +553,7 @@ def run(
             # Train quaternion model
             x = X_train[perm[i]]
             y_true = y_train[perm[i]]
-            model.train(x, y)
+            model.train(x, y_true)
             y_pred = model.predict_label(x)
             num_train_correct += y_pred == y_true
 
@@ -562,7 +565,7 @@ def run(
 
             # Record quaternion weights
             if i % 100 == 0:
-                experiment_data["quaternion"]["bias_history"].append({
+                experiment_data["model"]["bias_history"].append({
                     "epoch": epoch,
                     "step": i * 100,
                     "w": float(model.bias.w),
@@ -571,7 +574,7 @@ def run(
                     "z": float(model.bias.z),
                 })
 
-                experiment_data["quaternion"]["action_history"].append({
+                experiment_data["model"]["action_history"].append({
                     "epoch": epoch,
                     "step": i * 100,
                     "w": float(model.action.w),
@@ -581,14 +584,15 @@ def run(
                 })
 
         # Record training accuracies
-        experiment_data["quaternion"]["train_accuracies"].append(float(num_train_correct / n_samples))
+        experiment_data["model"]["train_accuracies"].append(
+            float(num_train_correct / n_samples),
+        )
 
         # Test accuracies
         num_test_correct = sum(
-            model.predict_label(x) == y
-            for x, y in zip(X_test, y_test, strict=False)
+            model.predict_label(x) == y for x, y in zip(X_test, y_test, strict=False)
         )
-        experiment_data["quaternion"]["test_accuracies"].append(
+        experiment_data["model"]["test_accuracies"].append(
             float(num_test_correct / len(y_test)),
         )
 

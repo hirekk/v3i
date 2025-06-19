@@ -17,7 +17,7 @@ class LogisticRegressionBaseline(BaselineModel):
         )
         self.is_fitted = False
 
-    def fit_batch(self, X: np.ndarray, y: np.ndarray) -> float:
+    def fit(self, X: np.ndarray, y: np.ndarray) -> float:
         """Fit on a batch of data and return accuracy."""
         if not self.is_fitted:
             self.model.fit(X, y)

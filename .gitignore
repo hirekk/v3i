@@ -172,4 +172,5 @@ cython_debug/
 **.pem
 
 # Data
-data/
+data
+!/src/**/data

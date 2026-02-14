@@ -1,0 +1,60 @@
+{
+  "version": "1",
+  "metadata": {
+    "marimo_version": "0.19.11"
+  },
+  "cells": [
+    {
+      "id": "Hbol",
+      "code_hash": "024ce988b8616d7f78856569a1589eaf",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "rUos",
+      "code_hash": "b2a0c5f1a925e74a4e2eb7957261273e",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "qgzd",
+      "code_hash": "30cf58080af5ef935fd975d4fe554adb",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": [
+        {
+          "type": "stream",
+          "name": "stdout",
+          "text": "Train X shape: (800, 4), y shape: (800,)\nTest  X shape: (200, 4), y shape: (200,)\n  X = [-0.17613327  0.98436633  0.          0.        ], y = 1\n  X = [-0.10264341  0.99471822  0.          0.        ], y = 1\n  X = [-0.06932303 -0.99759427  0.          0.        ], y = -1\n---\n  X = [-0.52614802 -0.850393    0.          0.        ], y = -1\n  X = [0.13649311 0.99064102 0.         0.        ], y = 1\n  X = [0.02939812 0.99956778 0.         0.        ], y = 1\n",
+          "mimetype": "text/plain"
+        }
+      ]
+    },
+    {
+      "id": "QXYD",
+      "code_hash": null,
+      "outputs": [],
+      "console": []
+    }
+  ]
+}

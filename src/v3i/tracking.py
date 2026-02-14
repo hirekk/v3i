@@ -8,7 +8,7 @@ import streamlit as st
 
 def plot_action_evolution(experiment_path: Path) -> go.Figure:
     """Create an interactive plot of weight component evolution."""
-    with open(experiment_path / "experiment.json", encoding="utf-8") as f:
+    with Path(experiment_path / "experiment.json").open(encoding="utf-8") as f:
         data = json.load(f)
     # Create figure
     fig = go.Figure()
@@ -41,7 +41,7 @@ def plot_action_evolution(experiment_path: Path) -> go.Figure:
 
 def plot_bias_evolution(experiment_path: Path) -> go.Figure:
     """Create an interactive plot of weight component evolution."""
-    with open(experiment_path / "experiment.json", encoding="utf-8") as f:
+    with Path(experiment_path / "experiment.json").open(encoding="utf-8") as f:
         data = json.load(f)
     # Create figure
     fig = go.Figure()
@@ -142,7 +142,7 @@ def plot_octonion_weight_evolution(weight_history: list[dict], figure: go.Figure
 
 def plot_accuracy_comparison(experiment_path: Path) -> go.Figure:
     """Create comparison plot showing accuracy evolution for all models."""
-    with open(experiment_path / "experiment.json", encoding="utf-8") as f:
+    with Path(experiment_path / "experiment.json").open(encoding="utf-8") as f:
         data = json.load(f)
 
     # Create figure with two subplots side by side
@@ -242,7 +242,7 @@ def plot_accuracy_comparison(experiment_path: Path) -> go.Figure:
 def plot_metrics_change(experiment_path: Path) -> go.Figure:
     """Create a plot of metrics change."""
     # Display final metrics
-    with open(experiment_path / "experiment.json", encoding="utf-8") as f:
+    with Path(experiment_path / "experiment.json").open(encoding="utf-8") as f:
         data = json.load(f)
 
     # Create columns for final metrics

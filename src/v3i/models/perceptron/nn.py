@@ -27,7 +27,7 @@ class Sequential:
         self._last_q_out: quaternion.quaternion | None = None
 
     def forward(self, x: np.ndarray) -> np.ndarray:
-        """Run input through all layers. Returns final output as (1, 4). Updates _last_q_out."""
+        """Run input through all layers. Returns final output as (1, 4)."""
         x = np.atleast_2d(x)
         for layer in self.layers:
             _, q_out = layer.predict(x)
@@ -47,17 +47,31 @@ class Sequential:
     ) -> None:
         """Forward-propagate the error and update each layer (no backprop).
 
-        Error is fed as input; each layer does its local act–observe–correct with
-        target = identity (1,0,0,0), so the network learns to "consume" the error.
+        First layer receives the overall error, updates its weights, and returns the
+        residual update (the part it did not absorb). That residual is fed to the
+        next layer, which updates and passes its residual on, and so on.
         """
         if isinstance(q_error, np.ndarray):
             q_error = quaternion.quaternion(*np.atleast_1d(q_error).ravel()[:4])
         inp = np.atleast_2d(quaternion.as_float_array(q_error))
         for layer, opt in zip(self.layers, optimizers, strict=True):
-            _, q_out = layer.predict(inp)
-            u_b, u_a = layer.compute_update(inp, 1)  # target = identity
+            u_b, u_residual, u_a = layer.compute_update(inp, 1)  # target = identity
             opt.step(u_b, u_a)
-            inp = np.atleast_2d(quaternion.as_float_array(q_out))
+            inp = np.atleast_2d(quaternion.as_float_array(u_residual))
+
+    def _learn_backward(
+        self,
+        q_error: quaternion.quaternion,
+        optimizers: list,
+        hidden_list: list[np.ndarray],
+    ) -> None:
+        """LIFO: last layer gets output error with its real input; residual becomes previous layer's error."""
+        err = None
+        for i in range(len(self.layers) - 1, -1, -1):
+            inp = hidden_list[i] if err is None else np.atleast_2d(quaternion.as_float_array(err))
+            u_b, u_residual, u_a = self.layers[i].compute_update(inp, 1)
+            optimizers[i].step(u_b, u_a)
+            err = u_residual
 
     def learn_step(
         self,
@@ -65,9 +79,14 @@ class Sequential:
         label: int,
         optimizers: list,
     ) -> None:
-        """Full act–observe–correct: forward(x), compute error, then learn_mode(error)."""
-        self.forward(x)
-        q_out = self._last_q_out
+        """Act–observe–correct: forward(x) while recording activations, compute error, then LIFO learn."""
+        x = np.atleast_2d(x)
+        hidden_list = [x.copy()]
+        for layer in self.layers:
+            _, q_out = layer.predict(x)
+            x = np.atleast_2d(quaternion.as_float_array(q_out))
+            hidden_list.append(x.copy())
+        self._last_q_out = quaternion.quaternion(*x[0])
         q_target = quaternion.quaternion(label, 0, 0, 0)
-        q_err = geodesic_rotation(q_out, q_target)
-        self.learn_mode(q_err, optimizers)
+        q_err = geodesic_rotation(self._last_q_out, q_target)
+        self._learn_backward(q_err, optimizers, hidden_list)

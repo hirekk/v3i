@@ -1,8 +1,4 @@
-"""Train a stack of quaternion perceptrons (act–observe–correct, forward-propagated error).
-
-Example: 2 layers
-  uv run python -m v3i.train_stacked --layers 2 --epochs 10
-"""
+"""Train a stack of quaternion perceptrons."""
 
 from __future__ import annotations
 
@@ -12,9 +8,9 @@ from pathlib import Path
 
 import numpy as np
 
-from v3i.models.perceptron.quaterion import QuaternionPerceptron
-from v3i.models.perceptron.quaterion import SimpleOptimizer
-from v3i.models.perceptron.stack import Sequential
+from v3i.models.perceptron.nn import Sequential
+from v3i.models.perceptron.quaternion import QuaternionPerceptron
+from v3i.models.perceptron.quaternion import SimpleOptimizer
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
@@ -24,11 +20,11 @@ def main() -> None:
     p = argparse.ArgumentParser(
         description="Train stacked quaternion perceptrons (forward error, no backprop)."
     )
-    p.add_argument("--data-dir", type=Path, default=Path("data/binary_3sphere"))
-    p.add_argument("--epochs", type=int, default=10)
-    p.add_argument("--lr", type=float, default=0.01)
+    p.add_argument("--data-dir", type=Path, default=Path("data/binary_1d"))
+    p.add_argument("--num-epochs", type=int, default=10)
+    p.add_argument("--learning-rate", type=float, default=0.01)
     p.add_argument("--layers", type=int, default=2, help="Number of stacked perceptrons.")
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--random-seed", type=int, default=0)
     args = p.parse_args()
 
     train = np.load(args.data_dir / "train.npz")
@@ -38,7 +34,9 @@ def main() -> None:
 
     layers = [
         QuaternionPerceptron(
-            learning_rate=args.lr, random_seed=args.seed + i, forward_type="right_multiplication"
+            learning_rate=args.learning_rate,
+            random_seed=args.random_seed + i,
+            forward_type="right_multiplication",
         )
         for i in range(args.layers)
     ]
@@ -61,16 +59,18 @@ def main() -> None:
         test_acc_0 * 100,
     )
 
-    rng = np.random.default_rng(args.seed)
-    for epoch in range(args.epochs):
+    rng = np.random.default_rng(args.random_seed)
+    for epoch in range(args.num_epochs):
         for idx in rng.permutation(n):
             x = np.atleast_2d(X_train[idx])
-            model.learn_step(x, int(y_train[idx]), optimizers)
+            label = int(y_train[idx])
+            if model.predict_label(x) != label:
+                model.learn_step(x, label, optimizers)
         tr, te = acc()
         logger.info(
             "Epoch %d/%d  train_acc=%.2f%%  test_acc=%.2f%%",
             epoch + 1,
-            args.epochs,
+            args.num_epochs,
             tr * 100,
             te * 100,
         )

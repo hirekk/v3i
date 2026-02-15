@@ -60,7 +60,7 @@ def main(
         perm = rng.permutation(n)
         for idx in perm:
             x = np.atleast_2d(X_train[idx])
-            u_b, u_a = model.compute_update(x, int(y_train[idx]))
+            u_b, _, u_a = model.compute_update(x, int(y_train[idx]))
             optimizer.step(u_b, u_a)
         if isinstance(optimizer, BatchedOptimizer):
             optimizer.flush()
@@ -83,16 +83,16 @@ if __name__ == "__main__":
         "--data-dir",
         type=Path,
         default="data/binary_3sphere",
-        help="Path to the data directory. Default: data/binary_3sphere",
+        help="Path to the data directory. Default: data/binary_1d",
     )
     parser.add_argument(
-        "--epochs",
+        "--num-epochs",
         type=int,
         default=10,
         help="Number of epochs. Default: 10",
     )
     parser.add_argument(
-        "--lr",
+        "--learning-rate",
         type=float,
         default=0.01,
         help="Learning rate. Default: 0.01",
@@ -110,7 +110,7 @@ if __name__ == "__main__":
         help="Forward type. Default: right_multiplication.",
     )
     parser.add_argument(
-        "--seed",
+        "--random-seed",
         type=int,
         default=0,
         help="Random seed. Default: 0",
@@ -119,9 +119,9 @@ if __name__ == "__main__":
 
     main(
         data_dir=args.data_dir,
-        num_epochs=args.epochs,
-        learning_rate=args.lr,
+        num_epochs=args.num_epochs,
+        learning_rate=args.learning_rate,
         batch_size=args.batch_size,
         forward_type=args.forward_type,
-        random_seed=args.seed,
+        random_seed=args.random_seed,
     )

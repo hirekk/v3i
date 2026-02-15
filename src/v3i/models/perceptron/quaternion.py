@@ -143,7 +143,7 @@ class QuaternionPerceptron:
         self,
         inputs: np.ndarray,
         tolerance: float = 1e-10,
-    ) -> tuple[quaternion.quaternion, quaternion.quaternion, quaternion.quaternion]:
+    ) -> tuple[quaternion.quaternion, quaternion.quaternion]:
         """Forward pass computing final rotation state.
 
         Computes the average of the inputs using the eigenvector of the sum of outer products of the inputs.
@@ -173,7 +173,7 @@ class QuaternionPerceptron:
         self,
         inputs: np.ndarray,
         tolerance: float = 1e-10,
-    ) -> tuple[quaternion.quaternion, quaternion.quaternion, quaternion.quaternion]:
+    ) -> tuple[quaternion.quaternion, quaternion.quaternion]:
         """Forward pass computing final rotation state.
 
         Args:
@@ -204,7 +204,7 @@ class QuaternionPerceptron:
         self,
         inputs: np.ndarray,
         tolerance: float = 1e-10,
-    ) -> tuple[quaternion.quaternion, quaternion.quaternion, quaternion.quaternion]:
+    ) -> tuple[quaternion.quaternion, quaternion.quaternion]:
         """Forward pass computing final rotation state.
 
         Args:
@@ -236,7 +236,7 @@ class QuaternionPerceptron:
         self,
         inputs: np.ndarray,
         tolerance: float = 1e-10,
-    ) -> tuple[quaternion.quaternion, quaternion.quaternion, quaternion.quaternion]:
+    ) -> tuple[quaternion.quaternion, quaternion.quaternion]:
         """Forward pass computing final rotation state.
 
         Computes the sum of the inputs using the eigenvector of the sum of outer products of the inputs.
@@ -265,7 +265,7 @@ class QuaternionPerceptron:
         self,
         inputs: np.ndarray,
         tolerance: float = 1e-10,
-    ) -> tuple[quaternion.quaternion, quaternion.quaternion, quaternion.quaternion]:
+    ) -> tuple[quaternion.quaternion, quaternion.quaternion]:
         """Forward pass computing final rotation state.
 
         Computes the mean of the inputs using the eigenvector of the sum of outer products of the inputs.
@@ -316,8 +316,8 @@ class QuaternionPerceptron:
 
     def compute_update(
         self, inputs: np.ndarray, label: int
-    ) -> tuple[quaternion.quaternion, quaternion.quaternion]:
-        """Proposed (u_b, u_a) to move output toward label. Optimizer applies them."""
+    ) -> tuple[quaternion.quaternion, quaternion.quaternion, quaternion.quaternion]:
+        """Proposed (u_b, u_residual, u_a) to move output toward label. Optimizer applies u_b, u_a; residual can be passed to next layer."""
         self._ensure_unit_weights()
         q_in, q_out = self.predict(inputs=inputs)
         q_target = quaternion.quaternion(label, 0, 0, 0)
@@ -327,7 +327,7 @@ class QuaternionPerceptron:
             q_update = -q_update
         u_b, u_residual, u_a = self.decompose_update(q_update=q_update, q_kernel=q_in)
         self.error_store.append(u_residual)
-        return u_b, u_a
+        return u_b, u_residual, u_a
 
     def apply_update(self, u_b: quaternion.quaternion, u_a: quaternion.quaternion) -> None:
         """Apply (u_b, u_a) to bias and action and renormalize."""
@@ -338,7 +338,7 @@ class QuaternionPerceptron:
 
     def train(self, inputs: np.ndarray, label: int) -> None:
         """Convenience: compute_update then apply_update (one step). Use optimizer for batching."""
-        u_b, u_a = self.compute_update(inputs, label)
+        u_b, _, u_a = self.compute_update(inputs, label)
         self.apply_update(u_b, u_a)
 
     def _ensure_unit_weights(self) -> None:
@@ -371,7 +371,7 @@ class QuaternionPerceptron:
 
         v_u = quaternion.as_rotation_vector(q_update)
 
-        # Form a basis from the vectors v_b, v_k, and v_a.
+        # Form a basis from the vectors v_b, v_r, and v_a.
         basis = np.array([v_b, v_k, v_a])
         det = np.linalg.det(basis)
         if abs(det) < 1e-10:

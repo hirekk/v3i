@@ -1,27 +1,16 @@
-"""Octonion-based Perceptron implementation from scratch.
+"""Quaternion-based Perceptron implementation from scratch.
 
-This module implements a classic perceptron model that uses octonions
+This module implements a classic perceptron model that uses quaternions
 for weights, inputs, and outputs instead of real numbers.
 """
 
 from __future__ import annotations
 
-import datetime
-import json
 import logging
-from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import numpy as np
 import quaternion
-from tqdm import tqdm
-
-from v3i.data.dataset import DatasetType
-from v3i.data.mnist import load_mnist_data
-from v3i.data.xor import load_xor_data
-from v3i.models.baseline import DecisionTreeBaseline
-from v3i.models.baseline import LogisticRegressionBaseline
-from v3i.models.baseline import RandomChoiceBaseline
 
 logger = logging.getLogger(__name__)
 
@@ -40,26 +29,13 @@ class QuaternionPerceptron:
     def __init__(
         self,
         learning_rate: float = 0.01,
-        buffer_size: int | None = None,
         random_seed: int | None = None,
         forward_type: ForwardType = "right_multiplication",
     ) -> None:
-        """Initialize the quaternion perceptron with a single quaternion weight.
-
-        Args:
-            learning_rate: Learning rate for weight updates.
-            random_seed: Random seed for weight initialization.
-        """
+        """Initialize the quaternion perceptron with a single quaternion weight."""
         self.forward_type = forward_type
         self.learning_rate = learning_rate
-
-        self.buffer_size = buffer_size
-        self._buffer_counter = 0
-        self.bias_update_buffer: quaternion.quaternion = quaternion.quaternion(1, 0, 0, 0)
-        self.action_update_buffer: quaternion.quaternion = quaternion.quaternion(1, 0, 0, 0)
-
         self.error_store: list[quaternion.quaternion] = []
-
         self.random_seed = random_seed
         self._rng = np.random.default_rng(seed=random_seed)
 
@@ -75,8 +51,7 @@ class QuaternionPerceptron:
         return v / np.linalg.norm(v)
 
     def _initialize_weight(self) -> quaternion.quaternion:
-        """Initialize weight as a random rotation."""
-        # Generate random 4D vector
+        """Initialize weight as identity + small random perturbation."""
         components = np.array([1, 0, 0, 0], dtype=np.float64)
         perturbation = self._rng.normal(0, 0.1, 4)
         components += perturbation
@@ -323,68 +298,41 @@ class QuaternionPerceptron:
         return q_in, q_out
 
     def predict_label(self, inputs: np.ndarray) -> int:
-        """Predict class based on final rotation angle."""
+        """Predict class: +1 if q_out.w >= 0 else -1 (avoids 0 from np.sign)."""
         _, q_out = self.predict(inputs=inputs)
-        return np.sign(q_out.w)
+        return 1 if q_out.w >= 0 else -1
 
-    def train(self, inputs: np.ndarray, label: int, tolerance: float = 1e-6) -> None:
-        """Update weight using log/exp map for better stability."""
-        bias_norm = abs(self.bias)
-        if abs(bias_norm - 1) > 1e-10:
-            logger.warning(
-                "Bias is not a unit quaternion: ||%s|| = %s. Normalizing.",
-                self.bias,
-                bias_norm,
-            )
-            self.bias = self.bias / bias_norm
-
-        action_norm = abs(self.action)
-        if abs(action_norm - 1) > 1e-10:
-            logger.warning(
-                "Action is not a unit quaternion: ||%s|| = %s. Normalizing.",
-                self.action,
-                action_norm,
-            )
-            self.action = self.action / action_norm
-
-        # inputs = np.array([q * [-1, 1, 1, 1] if q[0] < 0 else q for q in inputs])
-        q_in, q_out = self.predict(inputs=inputs)  # Orientations.
-
-        # Compute error as geodesic rotation from current to target
-        q_target = quaternion.quaternion(label, 0, 0, 0)  # Orientation.
-        q_error = self._compute_geodesic_rotation(source=q_out, target=q_target)  # Error rotation.
-
-        # close_to_unity = q_target.conjugate() * q_out * q_error
-        # close_to_zero = close_to_unity - quaternion.quaternion(close_to_unity.w, 0, 0, 0)
-        # if abs(close_to_zero) > tolerance:
-        #     raise ValueError("Bad error term: must take prediction to target quaternion; ||%s|| = %s.", close_to_zero, abs(close_to_zero))
-
-        q_update = q_error.conjugate() ** self.learning_rate  # Must be close to the identity.
+    def compute_update(
+        self, inputs: np.ndarray, label: int
+    ) -> tuple[quaternion.quaternion, quaternion.quaternion]:
+        """Proposed (u_b, u_a) to move output toward label. Optimizer applies them."""
+        self._ensure_unit_weights()
+        q_in, q_out = self.predict(inputs=inputs)
+        q_target = quaternion.quaternion(label, 0, 0, 0)
+        q_error = self._compute_geodesic_rotation(source=q_out, target=q_target)
+        q_update = q_error**self.learning_rate
         if q_update.w < 0:
             q_update = -q_update
         u_b, u_residual, u_a = self.decompose_update(q_update=q_update, q_kernel=q_in)
-
         self.error_store.append(u_residual)
+        return u_b, u_a
 
-        if self.buffer_size is not None:
-            self.bias_update_buffer = self.bias_update_buffer * u_b
-            self.action_update_buffer = self.action_update_buffer * u_a
-            self._buffer_counter += 1
-            if self._buffer_counter == self.buffer_size:
-                self.bias = self.bias * u_b
-                self.bias = self.bias / abs(self.bias)
+    def apply_update(self, u_b: quaternion.quaternion, u_a: quaternion.quaternion) -> None:
+        """Apply (u_b, u_a) to bias and action and renormalize."""
+        self.bias = self.bias * u_b
+        self.bias = self.bias / abs(self.bias)
+        self.action = self.action * u_a
+        self.action = self.action / abs(self.action)
 
-                self.action = self.action * u_a
-                self.action = self.action / abs(self.action)
+    def train(self, inputs: np.ndarray, label: int) -> None:
+        """Convenience: compute_update then apply_update (one step). Use optimizer for batching."""
+        u_b, u_a = self.compute_update(inputs, label)
+        self.apply_update(u_b, u_a)
 
-                self.bias_update_buffer = quaternion.quaternion(1, 0, 0, 0)
-                self.action_update_buffer = quaternion.quaternion(1, 0, 0, 0)
-                self._buffer_counter = 0
-        else:
-            self.bias = self.bias * u_b
+    def _ensure_unit_weights(self) -> None:
+        if abs(abs(self.bias) - 1) > 1e-10:
             self.bias = self.bias / abs(self.bias)
-
-            self.action = self.action * u_a
+        if abs(abs(self.action) - 1) > 1e-10:
             self.action = self.action / abs(self.action)
 
     def decompose_update(
@@ -429,7 +377,7 @@ class QuaternionPerceptron:
         )
         u_b = u_b / abs(u_b)
         if abs(abs(u_b) - 1) > 1e-10:
-            logging.warning(
+            logger.warning(
                 "Bias error component must be a unit quaternion: ||%s|| = %s.",
                 u_b,
                 abs(u_b),
@@ -441,7 +389,7 @@ class QuaternionPerceptron:
         )
         u_residual = u_residual / abs(u_residual)
         if abs(abs(u_residual) - 1) > 1e-10:
-            logging.warning(
+            logger.warning(
                 "Residual error component must be a unit quaternion: ||%s|| = %s.",
                 u_residual,
                 abs(u_residual),
@@ -453,7 +401,7 @@ class QuaternionPerceptron:
         )
         u_a = u_a / abs(u_a)
         if abs(abs(u_a) - 1) > 1e-10:
-            logging.warning(
+            logger.warning(
                 "Action error component must be a unit quaternion: ||%s|| = %s.",
                 u_a,
                 abs(u_a),
@@ -461,155 +409,55 @@ class QuaternionPerceptron:
         return u_b, u_residual, u_a
 
 
-def run(config: dict[str, Any]) -> None:
-    """Run a quaternion perceptron experiment.
+def _tangent_space_avg(
+    quat_list: list[quaternion.quaternion], scale: float = 1.0
+) -> quaternion.quaternion:
+    """Average rotations in tangent space and return a single quaternion (scale shrinks the step)."""
+    if not quat_list:
+        return quaternion.quaternion(1, 0, 0, 0)
+    vecs = np.array([quaternion.as_rotation_vector(q) for q in quat_list])
+    avg_vec = np.mean(vecs, axis=0) * scale
+    n = np.linalg.norm(avg_vec)
+    if n < 1e-12:
+        return quaternion.quaternion(1, 0, 0, 0)
+    return quaternion.from_rotation_vector(avg_vec)
 
-    Args:
-        config: Configuration for the run.
-    """
-    experiment_config = config["experiment"]
-    model_config = config["model"]
-    baselines_config = config.get("baselines", {})
 
-    dataset = experiment_config["dataset"]
-    rng = np.random.RandomState(seed=experiment_config.get("random_seed"))
+class SimpleOptimizer:
+    """Apply every (u_b, u_a) immediately. Model is bound at construction (PyTorch-like)."""
 
-    """Main function to run the quaternion perceptron."""
-    match dataset:
-        case DatasetType.MNIST:
-            X_train, y_train, X_test, y_test = load_mnist_data(model="quaternion")
-            X_baseline_train, y_baseline_train, X_baseline_test, y_baseline_test = load_mnist_data(
-                model="baseline",
-            )
-        case DatasetType.XOR:
-            X_train, y_train, X_test, y_test = load_xor_data(dimensionality=4)
-            X_baseline_train, y_baseline_train, X_baseline_test, y_baseline_test = load_xor_data(
-                dimensionality=4,
-            )
-        case _:
-            err_msg = f"Invalid dataset: {dataset}"
-            raise ValueError(err_msg)
+    def __init__(self, model: QuaternionPerceptron) -> None:
+        self._model = model
 
-    # Setup experiment tracking
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    experiment_dir = Path("data/experiments") / timestamp
-    experiment_dir.mkdir(parents=True, exist_ok=True)
-    experiment_data = {
-        "config": config,
-        "model": {
-            "bias_history": [],
-            "action_history": [],
-            "train_accuracies": [],
-            "test_accuracies": [],
-        },
-        "baselines": {},
-    }
+    def step(self, u_b: quaternion.quaternion, u_a: quaternion.quaternion) -> None:
+        self._model.apply_update(u_b, u_a)
 
-    # Initialize models
-    logger.info("Initializing model with config: %s", model_config)
-    model = QuaternionPerceptron(**model_config)
 
-    baselines = {}
-    for baseline_name, baseline_config in baselines_config.items():
-        logger.info("Initializing baseline with config: %s", baseline_config)
-        match baseline_name:
-            case "decision_tree":
-                baseline = DecisionTreeBaseline(**baseline_config)
-            case "logistic_regression":
-                baseline = LogisticRegressionBaseline(**baseline_config)
-            case "random_choice":
-                baseline = RandomChoiceBaseline(**baseline_config)
-            case _:
-                err_msg = f"Invalid baseline: {baseline_name}"
-                raise ValueError(err_msg)
-        baselines[baseline_name] = baseline
-        experiment_data["baselines"][baseline_name] = {
-            "train_accuracy": None,
-            "test_accuracy": None,
-        }
+class BatchedOptimizer:
+    """Accumulate (u_b, u_a) and apply a tangent-space average every batch_size steps. Model bound at construction."""
 
-    # Train baselines
-    for baseline_name, baseline_model in baselines.items():
-        baseline_model.fit(X_baseline_train, y_baseline_train)
+    def __init__(self, model: QuaternionPerceptron, batch_size: int) -> None:
+        self._model = model
+        self.batch_size = batch_size
+        self._u_b_buf: list[quaternion.quaternion] = []
+        self._u_a_buf: list[quaternion.quaternion] = []
 
-    # Record baseline accuracies
-    for baseline_name, baseline_model in baselines.items():
-        train_acc = baseline_model.score(X_baseline_train, y_baseline_train)
-        experiment_data["baselines"][baseline_name]["train_accuracy"] = float(train_acc)
+    def step(self, u_b: quaternion.quaternion, u_a: quaternion.quaternion) -> None:
+        self._u_b_buf.append(u_b)
+        self._u_a_buf.append(u_a)
+        if len(self._u_b_buf) >= self.batch_size:
+            self._apply_batch()
 
-        test_acc = baseline_model.score(X_baseline_test, y_baseline_test)
-        experiment_data["baselines"][baseline_name]["test_accuracy"] = float(test_acc)
+    def flush(self) -> None:
+        """Apply any remaining buffered updates (e.g. at end of epoch)."""
+        if self._u_b_buf:
+            self._apply_batch()
 
-    # Training loop
-    num_epochs = experiment_config["epochs"]
-    for epoch in range(num_epochs):
-        n_samples = len(y_train)
-
-        perm = rng.permutation(n_samples)
-        pbar = tqdm(range(n_samples), desc=f"Epoch {epoch + 1}/{num_epochs}")
-
-        num_train_correct = 0
-        for i in pbar:
-            # Train quaternion model
-            x = X_train[perm[i]]
-            y_true = y_train[perm[i]]
-            model.train(x, y_true)
-            y_pred = model.predict_label(x)
-            num_train_correct += y_pred == y_true
-
-            # Update progress bar
-            if i % 100 == 0:
-                pbar.set_postfix({
-                    "train_acc": f"{num_train_correct / ((i + 1) * 100):.4f}",
-                })
-
-            # Record quaternion weights
-            if i % 100 == 0:
-                experiment_data["model"]["bias_history"].append({
-                    "epoch": epoch,
-                    "step": i * 100,
-                    "w": float(model.bias.w),
-                    "x": float(model.bias.x),
-                    "y": float(model.bias.y),
-                    "z": float(model.bias.z),
-                })
-
-                experiment_data["model"]["action_history"].append({
-                    "epoch": epoch,
-                    "step": i * 100,
-                    "w": float(model.action.w),
-                    "x": float(model.action.x),
-                    "y": float(model.action.y),
-                    "z": float(model.action.z),
-                })
-
-        # Record training accuracies
-        experiment_data["model"]["train_accuracies"].append(
-            float(num_train_correct / n_samples),
-        )
-
-        # Test accuracies
-        num_test_correct = sum(
-            model.predict_label(x) == y for x, y in zip(X_test, y_test, strict=False)
-        )
-        experiment_data["model"]["test_accuracies"].append(
-            float(num_test_correct / len(y_test)),
-        )
-
-        # Save experiment data
-        experiment_filepath = experiment_dir / "experiment.json"
-        with experiment_filepath.open(mode="w", encoding="utf-8") as f:
-            json.dump(experiment_data, f, indent=2)
-
-    # Record predictions
-    predictions_filepath = experiment_dir / "predictions.json"
-    predictions = []
-    for x, y in zip(X_test, y_test, strict=False):
-        q_in, q_out = model.predict(x)
-        predictions.append({
-            "target": int(y),
-            "input_reduced": quaternion.as_float_array(q_in).tolist(),
-            "prediction": quaternion.as_float_array(q_out).tolist(),
-        })
-    with predictions_filepath.open(mode="w", encoding="utf-8") as f:
-        json.dump(predictions, f, indent=2)
+    def _apply_batch(self) -> None:
+        n = len(self._u_b_buf)
+        scale = 1.0 / n
+        u_b_avg = _tangent_space_avg(self._u_b_buf, scale=scale)
+        u_a_avg = _tangent_space_avg(self._u_a_buf, scale=scale)
+        self._model.apply_update(u_b_avg, u_a_avg)
+        self._u_b_buf.clear()
+        self._u_a_buf.clear()

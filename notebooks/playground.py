@@ -6,8 +6,9 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
-    import numpy as np
     from pathlib import Path
+
+    import numpy as np
 
     return Path, np
 

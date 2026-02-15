@@ -1,78 +1,127 @@
-"""Train a quaternion perceptron on a binary classification dataset (e.g. binary_3sphere)."""
-
-from __future__ import annotations
+"""Train a quaternion perceptron on a binary classification dataset."""
 
 import argparse
+import logging
 from pathlib import Path
 
 import numpy as np
 
+from v3i.models.perceptron.quaterion import BatchedOptimizer
+from v3i.models.perceptron.quaterion import ForwardType
 from v3i.models.perceptron.quaterion import QuaternionPerceptron
+from v3i.models.perceptron.quaterion import SimpleOptimizer
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+handler = logging.StreamHandler()
+handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+
+logger.addHandler(handler)
 
 
-def load_npz_data(data_dir: Path):
-    """Load train and test from data_dir/train.npz and test.npz (keys X, y)."""
-    data_dir = Path(data_dir)
+def main(
+    data_dir: Path,
+    num_epochs: int,
+    learning_rate: float,
+    batch_size: int,
+    forward_type: ForwardType = "right_multiplication",
+    random_seed: int | None = None,
+) -> None:
     train = np.load(data_dir / "train.npz")
     test = np.load(data_dir / "test.npz")
-    return (
-        train["X"],
-        train["y"],
-        test["X"],
-        test["y"],
-    )
+    X_train, y_train = train["X"], train["y"]  # noqa: N806
+    X_test, y_test = test["X"], test["y"]  # noqa: N806
 
-
-def accuracy(model: QuaternionPerceptron, X: np.ndarray, y: np.ndarray) -> float:
-    """Fraction of samples correctly classified. X shape (n, 4) or (n, 1, 4)."""
-    n = len(y)
-    correct = 0
-    for i in range(n):
-        xi = X[i]
-        if xi.ndim == 1:
-            xi = xi.reshape(1, -1)
-        if model.predict_label(xi) == y[i]:
-            correct += 1
-    return correct / n if n else 0.0
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Train quaternion perceptron.")
-    parser.add_argument(
-        "--data-dir",
-        type=Path,
-        default=Path("data/binary_3sphere"),
-        help="Directory with train.npz and test.npz",
-    )
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--lr", type=float, default=0.01)
-    parser.add_argument("--buffer-size", type=int, default=100)
-    parser.add_argument("--seed", type=int, default=42)
-    args = parser.parse_args()
-
-    X_train, y_train, X_test, y_test = load_npz_data(args.data_dir)
     model = QuaternionPerceptron(
-        learning_rate=args.lr,
-        buffer_size=args.buffer_size,
-        random_seed=args.seed,
-        forward_type="right_multiplication",
+        learning_rate=learning_rate,
+        random_seed=random_seed,
+        forward_type=forward_type,
     )
-
-    rng = np.random.default_rng(args.seed)
+    optimizer = SimpleOptimizer(model) if batch_size <= 1 else BatchedOptimizer(model, batch_size)
+    rng = np.random.default_rng(random_seed)
     n = len(y_train)
 
-    for epoch in range(args.epochs):
+    def acc(m, X, y):
+        return sum(m.predict_label(np.atleast_2d(X[i])) == y[i] for i in range(len(y))) / len(y)
+
+    train_acc_0 = acc(model, X_train, y_train)
+    test_acc_0 = acc(model, X_test, y_test)
+    logger.info(
+        "Initial (untrained)  train_acc=%.2f%%  test_acc=%.2f%%",
+        train_acc_0 * 100.0,
+        test_acc_0 * 100.0,
+    )
+
+    for epoch in range(num_epochs):
         perm = rng.permutation(n)
-        for i in range(n):
-            idx = perm[i]
-            xi = X_train[idx]
-            if xi.ndim == 1:
-                xi = xi.reshape(1, -1)
-            model.train(xi, int(y_train[idx]))
-        train_acc = accuracy(model, X_train, y_train)
-        test_acc = accuracy(model, X_test, y_test)
-        print(f"Epoch {epoch + 1}/{args.epochs}  train_acc={train_acc:.4f}  test_acc={test_acc:.4f}")
+        for idx in perm:
+            x = np.atleast_2d(X_train[idx])
+            u_b, u_a = model.compute_update(x, int(y_train[idx]))
+            optimizer.step(u_b, u_a)
+        if isinstance(optimizer, BatchedOptimizer):
+            optimizer.flush()
+        train_acc = acc(model, X_train, y_train)
+        test_acc = acc(model, X_test, y_test)
+        logger.info(
+            "Epoch %d/%d  train_acc=%.2f%%  test_acc=%.2f%%",
+            epoch + 1,
+            num_epochs,
+            train_acc * 100.0,
+            test_acc * 100.0,
+        )
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+        description="Train a quaternion perceptron on a binary classification dataset.",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default="data/binary_3sphere",
+        help="Path to the data directory. Default: data/binary_3sphere",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=10,
+        help="Number of epochs. Default: 10",
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=0.01,
+        help="Learning rate. Default: 0.01",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="1 = update every sample (SimpleOptimizer). >1 = batch N steps (BatchedOptimizer).",
+    )
+    parser.add_argument(
+        "--forward-type",
+        type=str,
+        default="right_multiplication",
+        help="Forward type. Default: right_multiplication.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Random seed. Default: 0",
+    )
+    args = parser.parse_args()
+
+    main(
+        data_dir=args.data_dir,
+        num_epochs=args.epochs,
+        learning_rate=args.lr,
+        batch_size=args.batch_size,
+        forward_type=args.forward_type,
+        random_seed=args.seed,
+    )

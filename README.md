@@ -1,4 +1,6 @@
-# Octonion Perceptron
+# In (geodesic) pursuit of a more powerful knowledge representation
+
+## Octonion Perceptron
 
 This project implements a classic perceptron from the ground up, with a unique twist: it uses octonions for weights, inputs, and outputs instead of traditional real numbers.
 

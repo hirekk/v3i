@@ -23,6 +23,18 @@ ForwardType = Literal[
 ]
 
 
+def geodesic_rotation(
+    source: quaternion.quaternion,
+    target: quaternion.quaternion,
+) -> quaternion.quaternion:
+    """Minimal rotation (right-multiply) from source to target: source * R = target."""
+    r = source.conjugate() * target
+    r = r / abs(r)
+    if r.w < 0:
+        r = -r
+    return r
+
+
 class QuaternionPerceptron:
     """A biologically-inspired perceptron using a single quaternion weight."""
 
@@ -141,7 +153,7 @@ class QuaternionPerceptron:
             tolerance: Tolerance for quaternion normalization.
 
         Returns:
-            Tuple containing incoming quaterion (accumulated input orientations) and outgoing quaternion (final orientation).
+            Tuple containing incoming quaternion (accumulated input orientations) and outgoing quaternion (final orientation).
         """
         # Compute the sum of outer products in a vectorized manner
         M = np.einsum("ij,ik->jk", inputs, inputs)
@@ -169,7 +181,7 @@ class QuaternionPerceptron:
             tolerance: Tolerance for quaternion normalization.
 
         Returns:
-            Tuple containing incoming quaterion (accumulated input orientations) and outgoing quaternion (final orientation).
+            Tuple containing incoming quaternion (accumulated input orientations) and outgoing quaternion (final orientation).
         """
         # Accumulate inputs
         reduced = quaternion.quaternion(1, 0, 0, 0)
@@ -200,7 +212,7 @@ class QuaternionPerceptron:
             tolerance: Tolerance for quaternion normalization.
 
         Returns:
-            Tuple containing incoming quaterion (accumulated input orientations) and outgoing quaternion (final orientation).
+            Tuple containing incoming quaternion (accumulated input orientations) and outgoing quaternion (final orientation).
         """
         # Accumulate inputs
         reduced = quaternion.quaternion(1, 0, 0, 0)
@@ -234,7 +246,7 @@ class QuaternionPerceptron:
             tolerance: Tolerance for quaternion normalization.
 
         Returns:
-            Tuple containing incoming quaterion (accumulated input orientations) and outgoing quaternion (final orientation).
+            Tuple containing incoming quaternion (accumulated input orientations) and outgoing quaternion (final orientation).
         """
         q_inputs = quaternion.as_quat_array(inputs)
         rot_inputs = quaternion.as_rotation_vector(q_inputs)

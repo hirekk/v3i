@@ -6,10 +6,10 @@ from pathlib import Path
 
 import numpy as np
 
-from v3i.models.perceptron.quaterion import BatchedOptimizer
-from v3i.models.perceptron.quaterion import ForwardType
-from v3i.models.perceptron.quaterion import QuaternionPerceptron
-from v3i.models.perceptron.quaterion import SimpleOptimizer
+from v3i.models.perceptron.quaternion import BatchedOptimizer
+from v3i.models.perceptron.quaternion import ForwardType
+from v3i.models.perceptron.quaternion import QuaternionPerceptron
+from v3i.models.perceptron.quaternion import SimpleOptimizer
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

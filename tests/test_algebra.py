@@ -1,8 +1,8 @@
-"""Tests for v3i.numbers (Octonion and related)."""
+"""Tests for v3i.algebra (Octonion and related)."""
 
 import numpy as np
 
-from v3i.numbers import Octonion
+from v3i.algebra import Octonion
 
 _TRIALS = 10_000
 

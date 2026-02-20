@@ -7,89 +7,45 @@ for weights, inputs, and outputs instead of real numbers.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 import numpy as np
 
-from v3i.numbers import Octonion
-from v3i.numbers import slerp
-
-if TYPE_CHECKING:
-    from typing import Literal
-
-    ForwardType = Literal[
-        "left_multiplication",
-        "right_multiplication",
-        "two_bracketings",
-    ]
+from v3i.algebra import Octonion
+from v3i.algebra import cross_product_7d
 
 logger = logging.getLogger(__name__)
 
 
-def _tangent_space_avg_octonion(oct_list: list[Octonion], scale: float = 1.0) -> Octonion:
-    """Average unit octonions in tangent space; scale shrinks the step."""
-    if not oct_list:
-        return Octonion.unit()
-    vecs = np.array([o.to_rotation_vector() for o in oct_list])
-    avg_vec = np.mean(vecs, axis=0) * scale
-    n = np.linalg.norm(avg_vec)
-    if n < 1e-12:
-        return Octonion.unit()
-    return Octonion.from_rotation_vector(avg_vec)
-
-
-def left_assoc(oct_list: list[Octonion]) -> Octonion:
-    """Left-associated product: ((o0*o1)*o2)*...  Parenthesization matters for octonions."""
-    if not oct_list:
-        return Octonion.unit()
-    acc = oct_list[0]
-    for o in oct_list[1:]:
-        acc = acc * o  # (acc * o) is the next left-associated product
-    return acc
-
-
-def right_assoc(oct_list: list[Octonion]) -> Octonion:
-    """Right-associated product: o0*(o1*(o2*...))  Parenthesization matters for octonions."""
-    if not oct_list:
-        return Octonion.unit()
-    acc = oct_list[-1]
-    for o in reversed(oct_list[:-1]):
-        acc = o * acc  # (o * acc) is the next right-associated product
-    return acc
-
-
 class OctonionPerceptron:
-    """Perceptron on the octonion algebra; non-associativity is central to the forward pass.
-
-    Octonions are non-associative: (a*b)*c != a*(b*c). They are also non-commutative.
-    The forward pass is designed so that this property is front and center:
-    - left_multiplication / right_multiplication: one fixed parenthesization (left- or
-      right-associated product of inputs), then * weight. Different bracketings yield
-      different outputs; we pick one.
-    - two_bracketings: compute BOTH left-associated and right-associated products of the
-      same input sequence, then combine them (tangent-space average). The output explicitly
-      depends on the fact that the two bracketings differ; we do not collapse to a single
-      "rotation" as with quaternions.
-    """
-
-    FORWARD_TYPES = ("left_multiplication", "right_multiplication", "two_bracketings")
+    """A single-unit non-associative processing element constrained to the 7-sphere ($S^7$)."""
 
     def __init__(
         self,
-        learning_rate: float = 0.01,
+        learning_rate: float = 0.1,
         random_seed: int | None = None,
-        forward_type: ForwardType = "right_multiplication",
     ) -> None:
-        self.forward_type = forward_type
+        """Initializes the OctonionPerceptron.
+
+        Args:
+            learning_rate:
+                The scaling factor applied to the torque vector during weight updates.
+                Must be between 0 and 1. Defaults to 0.1.
+            random_seed:
+                Optional seed for the internal pseudo-random number generator to ensure
+                deterministic weight initialization. Defaults to None.
+        """
         self.learning_rate = learning_rate
-        self.error_store: list[Octonion] = []
         self.random_seed = random_seed
-        self._rng = np.random.default_rng(seed=random_seed)
+        self._rng = np.random.default_rng(seed=self.random_seed)
+
         self.weight = self._initialize_weight()
+        self.last_input: Octonion | None = None
+        self.last_output: Octonion | None = None
 
     def _initialize_weight(self) -> Octonion:
         """Unit octonion: identity + small random perturbation."""
-        return Octonion.unit() + Octonion(self._rng.normal(0, 0.1, 8)).normalize()
+        perturbation = self._rng.normal(0, 0.05, 8)
+        return (Octonion.unit() + Octonion(perturbation)).normalize()
 
     def _ensure_unit_weight(self) -> None:
         if abs(abs(self.weight) - 1.0) > 1e-10:
@@ -109,127 +65,158 @@ class OctonionPerceptron:
                 out.append(o / abs(o))
         return out
 
-    def forward_left_multiplication(
-        self,
-        inputs: np.ndarray,
-        tolerance: float = 1e-10,
-    ) -> tuple[Octonion, Octonion]:
-        """Left-associated product ((x0*x1)*x2)*... then * weight. One fixed bracketing."""
-        octs = self._inputs_to_unit_octonions(inputs, tolerance)
-        reduced = left_assoc(octs) if octs else Octonion.unit()
-        result = reduced * self.weight
-        return reduced, result
+    def forward(self, x: Octonion) -> Octonion:
+        """Signal propagation (The 'Act' step).
 
-    def forward_right_multiplication(
-        self,
-        inputs: np.ndarray,
-        tolerance: float = 1e-10,
-    ) -> tuple[Octonion, Octonion]:
-        """Right-associated product x0*(x1*(x2*...)) then * weight. One fixed bracketing."""
-        octs = self._inputs_to_unit_octonions(inputs, tolerance)
-        reduced = right_assoc(octs) if octs else Octonion.unit()
-        result = reduced * self.weight
-        return reduced, result
+        Performs right-multiplication: y = x * w.
 
-    def forward_two_bracketings(
-        self,
-        inputs: np.ndarray,
-        tolerance: float = 1e-10,
-    ) -> tuple[Octonion, Octonion]:
-        """Explicitly use non-associativity: compute both bracketings, then combine.
+        Args:
+            x:
+                The input signal to be processed.
 
-        left = ((x0*x1)*x2)*..., right = x0*(x1*(x2*...)). For octonions left != right.
-        We combine them in tangent space and multiply by weight so the output
-        depends on both parenthesizations.
+        Returns:
+            The output signal after right-multiplication.
         """
-        octs = self._inputs_to_unit_octonions(inputs, tolerance)
-        if not octs:
-            reduced = Octonion.unit()
-        else:
-            left_r = left_assoc(octs)
-            right_r = right_assoc(octs)
-            reduced = _tangent_space_avg_octonion([left_r, right_r], scale=1.0)
-            reduced = reduced.normalize()
-        result = reduced * self.weight
-        return reduced, result
+        self.last_input = x
+        self.last_output = x * self.weight
+        return self.last_output
 
-    def predict(self, inputs: np.ndarray) -> tuple[Octonion, Octonion]:
-        """Return (reduced, output). Output depends on parenthesization (non-associative)."""
-        match self.forward_type:
-            case "left_multiplication":
-                return self.forward_left_multiplication(inputs=inputs)
-            case "right_multiplication":
-                return self.forward_right_multiplication(inputs=inputs)
-            case "two_bracketings":
-                return self.forward_two_bracketings(inputs=inputs)
-            case _:
-                error_message = (
-                    f"Invalid forward_type: {self.forward_type}; use one of {self.FORWARD_TYPES}"
-                )
-                raise ValueError(error_message)
+    def correct(self, incoming_error: np.ndarray) -> np.ndarray:
+        """The 'correct' step (forward error propagation).
 
-    def predict_label(self, inputs: np.ndarray) -> int:
-        """+1 if output.re >= 0 else -1."""
-        _, o_out = self.predict(inputs=inputs)
-        return 1 if o_out.re >= 0 else -1
+        Args:
+            incoming_error: 8D tangent vector in the identity space.
 
-    def compute_update(self, inputs: np.ndarray, label: int) -> tuple[Octonion, Octonion]:
-        """Proposed (u, u_residual). Same semantics as quaternion: learning_rate scales the weight step.
-
-        We compute the full rotation u_full that would move output to target, then take only
-        learning_rate of that step: u = slerp(1, u_full, learning_rate). So learning_rate has
-        the same meaning as for quaternions (fraction of the step in weight space).
+        Returns:
+            The residual error 8D vector transported for the next layer.
         """
-        self._ensure_unit_weight()
-        reduced, o_out = self.predict(inputs=inputs)
+        if self.last_input is None:
+            error_message = "Must call forward() before correct()."
+            raise RuntimeError(error_message)
 
-        o_target = Octonion.unit() if label >= 0 else -Octonion.unit()
+        # 1. Transport global error to local weight frame
+        # r_local = w_inv * r_global * w
+        w_inv = self.weight.conjugate()
+        r_global = Octonion(incoming_error)
+        r_local = w_inv * r_global * self.weight
 
-        # Full step: weight_new such that reduced * weight_new = o_target
-        weight_new = (reduced.inverse() * o_target).normalize()
-        u_full = (self.weight.inverse() * weight_new).normalize()
-        u = slerp(Octonion.unit(), u_full, self.learning_rate).normalize()
-        self.error_store.append(u)
-        return u, u
+        # 2. Compute local torque (Commutator Alignment)
+        # Torque is the 7D cross product of weight and local error.
+        torque_vec = np.zeros(8)
+        torque_vec[1:] = cross_product_7d(self.weight.im, r_local.im)
+        torque = Octonion(torque_vec)
 
-    def apply_update(self, u: Octonion) -> None:
-        """Apply update on the right and renormalize (Correct-step heartbeat per review)."""
-        self.weight = (self.weight * u).normalize()
+        # 3. Compute Associator-based scaling factor (Kappa)
+        kappa = self._compute_kappa(self.last_input, self.weight, r_local)
 
-    def train(self, inputs: np.ndarray, label: int) -> None:
-        u, _ = self.compute_update(inputs, label)
-        self.apply_update(u)
+        # 4. Apply Geodesic Update (The 'Bite')
+        # We move along the geodesic in the direction of the torque.
+        update_mag = self.learning_rate * kappa
+        # delta_w = exp(update_mag * torque)
+        self.weight = (self.weight * (torque * update_mag).exp()).normalize()
+
+        # 5. Debt Accounting: Subtraction in local tangent space
+        # r_residual_local = r_local - projection(r_local onto torque)
+        absorbed = self._project(r_local.to_array(), torque_vec)
+        r_res_local = r_local.to_array() - absorbed
+
+        # 6. Adjoint Transport forward to the next layer
+        # r_next = w * r_res_local * w_inv
+        r_next = self.weight * Octonion(r_res_local) * self.weight.conjugate()
+
+        return r_next.to_array()
+
+    def _compute_kappa(self, q: Octonion, w: Octonion, r: Octonion) -> float:
+        """Measures non-associative drift to scale the update."""
+        # [q, w, r] = (qw)r - q(wr)
+        assoc = (q * w) * r - q * (w * r)
+        denom = abs(q) * abs(w) * abs(r)
+        if denom < 1e-15:
+            return 1.0
+        return 1.0 - np.clip(abs(assoc) / denom, 0.0, 1.0)
+
+    def _project(self, vector: np.ndarray, target: np.ndarray) -> np.ndarray:
+        """Orthogonal projection of vector onto target."""
+        mag_sq = np.dot(target, target)
+        if mag_sq < 1e-15:
+            return np.zeros(8)
+        return (np.dot(vector, target) / mag_sq) * target
+
+    def predict_label(self, x: Octonion) -> int:
+        """Binary classification helper based on the real part."""
+        output = self.forward(x)
+        return 1 if output.re >= 0 else -1
 
 
-class OctonionSimpleOptimizer:
-    """Apply every update u immediately."""
+class OctonionForwardOptimizer:
+    """Orchestrates the Forward-Wave correction across a chain."""
 
-    def __init__(self, model: OctonionPerceptron) -> None:
-        self._model = model
+    def __init__(self, layers: list[OctonionPerceptron]) -> None:
+        self.layers = layers
 
-    def step(self, u: Octonion) -> None:
-        self._model.apply_update(u)
+    def step(self, global_error: np.ndarray) -> None:
+        """Propagates the error wave through all layers."""
+        current_error = global_error
+        for layer in self.layers:
+            current_error = layer.correct(current_error)
 
 
-class OctonionBatchedOptimizer:
-    """Accumulate updates and apply tangent-space average every batch_size steps."""
+class OctonionSequential:
+    """A sequential container for Octonion Perceptrons.
 
-    def __init__(self, model: OctonionPerceptron, batch_size: int) -> None:
-        self._model = model
-        self.batch_size = batch_size
-        self._u_buf: list[Octonion] = []
+    Coordinates the Act (forward) and Correct (forward-error) phases.
+    The error propagates in the same direction as the data, but transforms
+    the manifold state of each layer as it passes through.
+    """
 
-    def step(self, u: Octonion) -> None:
-        self._u_buf.append(u)
-        if len(self._u_buf) >= self.batch_size:
-            self._apply_batch()
+    def __init__(self, layers: list[OctonionPerceptron]) -> None:
+        """Initializes the model with a list of layers.
 
-    def flush(self) -> None:
-        if self._u_buf:
-            self._apply_batch()
+        Args:
+            layers: Ordered list of OctonionPerceptron instances.
+        """
+        self.layers = layers
 
-    def _apply_batch(self) -> None:
-        n = len(self._u_buf)
-        u_avg = _tangent_space_avg_octonion(self._u_buf, scale=1.0 / n)
-        self._model.apply_update(u_avg)
-        self._u_buf.clear()
+    def forward(self, x: Octonion) -> Octonion:
+        """Forward Pass: Signal propagation.
+
+        Args:
+            x: Input unit octonion.
+
+        Returns:
+            The final prediction octonion on S^7.
+        """
+        current_val = x
+        for layer in self.layers:
+            current_val = layer.forward(current_val)
+        return current_val
+
+    def correct(self, target: Octonion) -> np.ndarray:
+        """Correction Pass: Forward-Wave Error Propagation.
+
+        Args:
+            target: The desired output octonion (e.g. Octonion.unit()).
+
+        Returns:
+            The final residual 8D error vector after the wave completes.
+        """
+        # 1. Observe the terminal output
+        p = self.layers[-1].last_output
+        if p is None:
+            raise RuntimeError("Must call forward() before correct().")
+
+        # 2. Compute Global Error r = log(p_inv * target)
+        # This defines the "Torque" needed to rotate the output to the target.
+        error_oct = (p.conjugate() * target).log()
+        current_error_vec = error_oct.to_array()
+
+        # 3. Propagate the correction wave forward through the hierarchy
+        for layer in self.layers:
+            current_error_vec = layer.correct(current_error_vec)
+
+        return current_error_vec
+
+    def predict_label(self, x: Octonion) -> int:
+        """Helper for binary classification."""
+        output = self.forward(x)
+        return 1 if output.re >= 0 else -1

@@ -11,7 +11,6 @@ import quaternion
 
 from v3i.models.perceptron.octonion import Octonion
 from v3i.models.perceptron.octonion import OctonionPerceptron
-from v3i.models.perceptron.octonion import as_float_array
 from v3i.models.perceptron.quaternion import QuaternionPerceptron
 from v3i.models.perceptron.quaternion import geodesic_rotation
 
@@ -96,66 +95,61 @@ class QuaternionSequential:
 
 
 class OctonionSequential:
-    """Stack of OctonionPerceptron layers; same act–observe–correct flow as Sequential (quaternion)."""
+    """A sequential container for Octonion Perceptrons.
+
+    Coordinates the Act (forward) and Correct (forward-error) phases.
+    The error propagates in the same direction as the data, but transforms
+    the manifold state of each layer as it passes through.
+    """
 
     def __init__(self, layers: list[OctonionPerceptron]) -> None:
-        self.layers = list(layers)
-        self._last_o_out: Octonion | None = None
+        """Initializes the model with a list of layers.
 
-    def forward(self, x: np.ndarray) -> np.ndarray:
-        """Run input through all layers. Input (n, 8); returns final output (1, 8)."""
-        x = np.atleast_2d(x)
-        for layer in self.layers:
-            _, o_out = layer.predict(x)
-            x = np.atleast_2d(as_float_array(o_out))
-        self._last_o_out = Octonion.from_components(x[0])
-        return x
-
-    def predict_label(self, x: np.ndarray) -> int:
-        """+1 if final output.x0 >= 0 else -1."""
-        self.forward(x)
-        return 1 if self._last_o_out and self._last_o_out.x0 >= 0 else -1
-
-    def _learn_backward(
-        self,
-        o_target: Octonion,
-        optimizers: list,
-        hidden_list: list[np.ndarray],
-    ) -> None:
-        """Target propagation: each layer gets its real activation and a target output.
-
-        Pre-compute all targets from current (pre-update) weights so they are consistent;
-        then apply updates. Last layer target = label; target[i] = target[i+1] * w[i+1]^{-1}.
+        Args:
+            layers: Ordered list of OctonionPerceptron instances.
         """
-        L = len(self.layers)
-        targets: list[Octonion] = [None] * L  # type: ignore[list-item]
-        targets[L - 1] = o_target / abs(o_target)
-        for i in range(L - 2, -1, -1):
-            t = targets[i + 1] * self.layers[i + 1].weight.inverse()
-            targets[i] = t / abs(t)
-        for i in range(L - 1, -1, -1):
-            inp = hidden_list[i]
-            target_label = 1 if targets[i].x0 >= 0 else -1
-            u, _ = self.layers[i].compute_update(inp, target_label)
-            optimizers[i].step(u)
+        self.layers = layers
 
-    def learn_step(
-        self,
-        x: np.ndarray,
-        label: int,
-        optimizers: list,
-    ) -> None:
-        """Act–observe–correct: forward(x), compute error, LIFO learn."""
-        x = np.atleast_2d(x)
-        hidden_list = [x.copy()]
+    def forward(self, x: Octonion) -> Octonion:
+        """Forward Pass: Signal propagation.
+
+        Args:
+            x: Input unit octonion.
+
+        Returns:
+            The final prediction octonion on S^7.
+        """
+        current_val = x
         for layer in self.layers:
-            _, o_out = layer.predict(x)
-            x = np.atleast_2d(as_float_array(o_out))
-            hidden_list.append(x.copy())
-        self._last_o_out = Octonion.from_components(x[0])
-        o_target = (
-            Octonion.unit()
-            if label >= 0
-            else Octonion.from_components(np.array([-1.0, 0, 0, 0, 0, 0, 0, 0]))
-        )
-        self._learn_backward(o_target, optimizers, hidden_list)
+            current_val = layer.forward(current_val)
+        return current_val
+
+    def correct(self, target: Octonion) -> np.ndarray:
+        """Correction Pass: Forward-Wave Error Propagation.
+
+        Args:
+            target: The desired output octonion (e.g. Octonion.unit()).
+
+        Returns:
+            The final residual 8D error vector after the wave completes.
+        """
+        # 1. Observe the terminal output
+        p = self.layers[-1].last_output
+        if p is None:
+            raise RuntimeError("Must call forward() before correct().")
+
+        # 2. Compute Global Error r = log(p_inv * target)
+        # This defines the "Torque" needed to rotate the output to the target.
+        error_oct = (p.conjugate() * target).log()
+        current_error_vec = error_oct.to_array()
+
+        # 3. Propagate the correction wave forward through the hierarchy
+        for layer in self.layers:
+            current_error_vec = layer.correct(current_error_vec)
+
+        return current_error_vec
+
+    def predict_label(self, x: Octonion) -> int:
+        """Helper for binary classification."""
+        output = self.forward(x)
+        return 1 if output.re >= 0 else -1

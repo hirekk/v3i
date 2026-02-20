@@ -1,4 +1,4 @@
-"""Numbers."""
+"""Octonion algebra (avoids shadowing stdlib numbers)."""
 
 from typing import Union
 

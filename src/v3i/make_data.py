@@ -147,12 +147,12 @@ def main() -> None:
     rng = np.random.default_rng(args.seed)
 
     if args.binary_1d:
-        out_dir = Path("data") / "binary_1d" / ("octonion" if args.octonion else "quaternion")
+        out_dir = Path("data") / "binary-1d" / ("octonion" if args.octonion else "quaternion")
         X_tr, y_tr, X_te, y_te = generate_binary_1d(
             args.train_size, args.test_size, args.noise, rng, to_sphere=to_1d
         )
     else:
-        out_dir = Path("data") / "binary_xor" / ("octonion" if args.octonion else "quaternion")
+        out_dir = Path("data") / "binary-xor" / ("octonion" if args.octonion else "quaternion")
         X_tr, y_tr, X_te, y_te = generate_binary_xor(
             args.train_size, args.test_size, args.noise, rng, to_sphere=to_2d
         )

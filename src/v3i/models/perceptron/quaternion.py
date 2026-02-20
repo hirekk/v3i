@@ -7,20 +7,13 @@ for weights, inputs, and outputs instead of real numbers.
 from __future__ import annotations
 
 import logging
-from typing import Literal
 
 import numpy as np
 import quaternion
 
-logger = logging.getLogger(__name__)
+from v3i.models.perceptron.utils import ForwardType
 
-ForwardType = Literal[
-    "average",
-    "left_multiplication",
-    "right_multiplication",
-    "algebraic_sum",
-    "algebraic_mean",
-]
+logger = logging.getLogger(__name__)
 
 
 def geodesic_rotation(
@@ -51,11 +44,8 @@ class QuaternionPerceptron:
         self.random_seed = random_seed
         self._rng = np.random.default_rng(seed=random_seed)
 
-        # Bias is used as a left action on the input, applying a "global", input-independent rotation.
-        self.bias = self._initialize_weight()
-
-        # Action is used as a right action on the input, applying a "local", input-dependent rotation.
-        self.action = self._initialize_weight()
+        # Single unit quaternion weight: rotation applied on the right (output = reduced * weight).
+        self.weight = self._initialize_weight()
 
     def _random_unit_vector(self) -> np.ndarray:
         """Generate a random unit vector for rotation axis."""
@@ -163,10 +153,7 @@ class QuaternionPerceptron:
         # if reduced.w < 0:
         #     reduced = -reduced
 
-        result = self.bias * reduced * self.action
-        # if result.w < 0:
-        #     result = -result
-
+        result = reduced * self.weight
         return reduced, result
 
     def forward_left_multiplication(
@@ -194,10 +181,7 @@ class QuaternionPerceptron:
         # if reduced.w < 0:
         #     reduced = -reduced
 
-        result = self.bias * reduced * self.action
-        # if result.w < 0:
-        #     result = -result
-
+        result = reduced * self.weight
         return reduced, result
 
     def forward_right_multiplication(
@@ -225,11 +209,7 @@ class QuaternionPerceptron:
         # if reduced.w < 0:
         #     reduced = -reduced
 
-        # Apply bias and action
-        result = self.bias * reduced * self.action
-        # if result.w < 0:
-        #     result = -result
-
+        result = reduced * self.weight
         return reduced, result
 
     def forward_algebraic_sum(
@@ -255,10 +235,7 @@ class QuaternionPerceptron:
         # if reduced.w < 0:
         #     reduced = -reduced
 
-        result = self.bias * reduced * self.action
-        # if result.w < 0:
-        #     result = -result
-
+        result = reduced * self.weight
         return reduced, result
 
     def forward_algebraic_mean(
@@ -281,10 +258,7 @@ class QuaternionPerceptron:
         # if reduced.w < 0:
         #     reduced = -reduced
 
-        result = self.bias * reduced * self.action
-        # if result.w < 0:
-        #     result = -result
-
+        result = reduced * self.weight
         return reduced, result
 
     def predict(self, inputs: np.ndarray) -> tuple[quaternion.quaternion, quaternion.quaternion]:
@@ -316,109 +290,31 @@ class QuaternionPerceptron:
 
     def compute_update(
         self, inputs: np.ndarray, label: int
-    ) -> tuple[quaternion.quaternion, quaternion.quaternion, quaternion.quaternion]:
-        """Proposed (u_b, u_residual, u_a) to move output toward label. Optimizer applies u_b, u_a; residual can be passed to next layer."""
-        self._ensure_unit_weights()
-        q_in, q_out = self.predict(inputs=inputs)
+    ) -> tuple[quaternion.quaternion, quaternion.quaternion]:
+        """Proposed (u, u_residual): rotation update for weight and residual for stacking."""
+        self._ensure_unit_weight()
+        _, q_out = self.predict(inputs=inputs)
         q_target = quaternion.quaternion(label, 0, 0, 0)
         q_error = self._compute_geodesic_rotation(source=q_out, target=q_target)
-        q_update = q_error**self.learning_rate
-        if q_update.w < 0:
-            q_update = -q_update
-        u_b, u_residual, u_a = self.decompose_update(q_update=q_update, q_kernel=q_in)
-        self.error_store.append(u_residual)
-        return u_b, u_residual, u_a
+        u = q_error**self.learning_rate
+        if u.w < 0:
+            u = -u
+        self.error_store.append(u)
+        return u, u
 
-    def apply_update(self, u_b: quaternion.quaternion, u_a: quaternion.quaternion) -> None:
-        """Apply (u_b, u_a) to bias and action and renormalize."""
-        self.bias = self.bias * u_b
-        self.bias = self.bias / abs(self.bias)
-        self.action = self.action * u_a
-        self.action = self.action / abs(self.action)
+    def apply_update(self, u: quaternion.quaternion) -> None:
+        """Apply rotation update to weight (right multiply) and renormalize."""
+        self.weight = self.weight * u
+        self.weight = self.weight / abs(self.weight)
 
     def train(self, inputs: np.ndarray, label: int) -> None:
         """Convenience: compute_update then apply_update (one step). Use optimizer for batching."""
-        u_b, _, u_a = self.compute_update(inputs, label)
-        self.apply_update(u_b, u_a)
+        u, _ = self.compute_update(inputs, label)
+        self.apply_update(u)
 
-    def _ensure_unit_weights(self) -> None:
-        if abs(abs(self.bias) - 1) > 1e-10:
-            self.bias = self.bias / abs(self.bias)
-        if abs(abs(self.action) - 1) > 1e-10:
-            self.action = self.action / abs(self.action)
-
-    def decompose_update(
-        self,
-        q_update: quaternion.quaternion,
-        q_kernel: quaternion.quaternion,
-    ) -> tuple[quaternion.quaternion, quaternion.quaternion, quaternion.quaternion]:
-        """Decompose update into bias, residual, and action components.
-
-        Args:
-            update: The update quaternion.
-            kernel: The kernel quaternion.
-
-        Returns:
-            A tuple containing the bias, residual, and action update components.
-        """
-        # q_update must be close to the identity.
-        # if not quaternion.isclose(q_update, quaternion.quaternion(1, 0, 0, 0), rtol=0.1):
-        #     logging.warning("Update must be close to the identity; got %s.", q_update)
-
-        v_b = quaternion.as_rotation_vector(self.bias)
-        v_k = quaternion.as_rotation_vector(q_kernel)
-        v_a = quaternion.as_rotation_vector(self.action)
-
-        v_u = quaternion.as_rotation_vector(q_update)
-
-        # Form a basis from the vectors v_b, v_r, and v_a.
-        basis = np.array([v_b, v_k, v_a])
-        det = np.linalg.det(basis)
-        if abs(det) < 1e-10:
-            err_msg = f"Basis vectors are linearly dependent (det = {det}): {basis}"
-            raise ValueError(err_msg)
-
-        # Solve for coefficients
-        coefficients = np.linalg.solve(basis, v_u)
-
-        # Project error components back into the quaternion space.
-        u_b = (
-            q_kernel.conjugate() ** coefficients[1]
-            * self.action.conjugate() ** coefficients[2]
-            * q_update ** coefficients[0]
-        )
-        u_b = u_b / abs(u_b)
-        if abs(abs(u_b) - 1) > 1e-10:
-            logger.warning(
-                "Bias error component must be a unit quaternion: ||%s|| = %s.",
-                u_b,
-                abs(u_b),
-            )
-        u_residual = (
-            self.bias.conjugate() ** coefficients[0]
-            * self.action.conjugate() ** coefficients[2]
-            * q_update ** coefficients[1]
-        )
-        u_residual = u_residual / abs(u_residual)
-        if abs(abs(u_residual) - 1) > 1e-10:
-            logger.warning(
-                "Residual error component must be a unit quaternion: ||%s|| = %s.",
-                u_residual,
-                abs(u_residual),
-            )
-        u_a = (
-            self.bias.conjugate() ** coefficients[0]
-            * q_kernel.conjugate() ** coefficients[1]
-            * q_update ** coefficients[2]
-        )
-        u_a = u_a / abs(u_a)
-        if abs(abs(u_a) - 1) > 1e-10:
-            logger.warning(
-                "Action error component must be a unit quaternion: ||%s|| = %s.",
-                u_a,
-                abs(u_a),
-            )
-        return u_b, u_residual, u_a
+    def _ensure_unit_weight(self) -> None:
+        if abs(abs(self.weight) - 1) > 1e-10:
+            self.weight = self.weight / abs(self.weight)
 
 
 def _tangent_space_avg(
@@ -435,41 +331,37 @@ def _tangent_space_avg(
     return quaternion.from_rotation_vector(avg_vec)
 
 
-class SimpleOptimizer:
-    """Apply every (u_b, u_a) immediately. Model is bound at construction (PyTorch-like)."""
+class QuaternionSimpleOptimizer:
+    """Apply every update u immediately."""
 
     def __init__(self, model: QuaternionPerceptron) -> None:
         self._model = model
 
-    def step(self, u_b: quaternion.quaternion, u_a: quaternion.quaternion) -> None:
-        self._model.apply_update(u_b, u_a)
+    def step(self, u: quaternion.quaternion) -> None:
+        self._model.apply_update(u)
 
 
-class BatchedOptimizer:
-    """Accumulate (u_b, u_a) and apply a tangent-space average every batch_size steps. Model bound at construction."""
+class QuaternionBatchedOptimizer:
+    """Accumulate updates and apply tangent-space average every batch_size steps."""
 
     def __init__(self, model: QuaternionPerceptron, batch_size: int) -> None:
         self._model = model
         self.batch_size = batch_size
-        self._u_b_buf: list[quaternion.quaternion] = []
-        self._u_a_buf: list[quaternion.quaternion] = []
+        self._u_buf: list[quaternion.quaternion] = []
 
-    def step(self, u_b: quaternion.quaternion, u_a: quaternion.quaternion) -> None:
-        self._u_b_buf.append(u_b)
-        self._u_a_buf.append(u_a)
-        if len(self._u_b_buf) >= self.batch_size:
+    def step(self, u: quaternion.quaternion) -> None:
+        self._u_buf.append(u)
+        if len(self._u_buf) >= self.batch_size:
             self._apply_batch()
 
     def flush(self) -> None:
         """Apply any remaining buffered updates (e.g. at end of epoch)."""
-        if self._u_b_buf:
+        if self._u_buf:
             self._apply_batch()
 
     def _apply_batch(self) -> None:
-        n = len(self._u_b_buf)
+        n = len(self._u_buf)
         scale = 1.0 / n
-        u_b_avg = _tangent_space_avg(self._u_b_buf, scale=scale)
-        u_a_avg = _tangent_space_avg(self._u_a_buf, scale=scale)
-        self._model.apply_update(u_b_avg, u_a_avg)
-        self._u_b_buf.clear()
-        self._u_a_buf.clear()
+        u_avg = _tangent_space_avg(self._u_buf, scale=scale)
+        self._model.apply_update(u_avg)
+        self._u_buf.clear()

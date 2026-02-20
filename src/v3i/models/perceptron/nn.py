@@ -9,11 +9,14 @@ from __future__ import annotations
 import numpy as np
 import quaternion
 
+from v3i.models.perceptron.octonion import Octonion
+from v3i.models.perceptron.octonion import OctonionPerceptron
+from v3i.models.perceptron.octonion import as_float_array
 from v3i.models.perceptron.quaternion import QuaternionPerceptron
 from v3i.models.perceptron.quaternion import geodesic_rotation
 
 
-class Sequential:
+class QuaternionSequential:
     """Stack of QuaternionPerceptron layers. Composable like NN layers.
 
     - Act: forward(x) runs input through each layer in order.
@@ -38,7 +41,7 @@ class Sequential:
     def predict_label(self, x: np.ndarray) -> int:
         """Predict class from final layer output: +1 if q_out.w >= 0 else -1."""
         self.forward(x)
-        return 1 if self._last_q_out.w >= 0 else -1
+        return 1 if self._last_q_out and self._last_q_out.w >= 0 else -1
 
     def learn_mode(
         self,
@@ -55,8 +58,8 @@ class Sequential:
             q_error = quaternion.quaternion(*np.atleast_1d(q_error).ravel()[:4])
         inp = np.atleast_2d(quaternion.as_float_array(q_error))
         for layer, opt in zip(self.layers, optimizers, strict=True):
-            u_b, u_residual, u_a = layer.compute_update(inp, 1)  # target = identity
-            opt.step(u_b, u_a)
+            u, u_residual = layer.compute_update(inp, 1)  # target = identity
+            opt.step(u)
             inp = np.atleast_2d(quaternion.as_float_array(u_residual))
 
     def _learn_backward(
@@ -69,8 +72,8 @@ class Sequential:
         err = None
         for i in range(len(self.layers) - 1, -1, -1):
             inp = hidden_list[i] if err is None else np.atleast_2d(quaternion.as_float_array(err))
-            u_b, u_residual, u_a = self.layers[i].compute_update(inp, 1)
-            optimizers[i].step(u_b, u_a)
+            u, u_residual = self.layers[i].compute_update(inp, 1)
+            optimizers[i].step(u)
             err = u_residual
 
     def learn_step(
@@ -90,3 +93,69 @@ class Sequential:
         q_target = quaternion.quaternion(label, 0, 0, 0)
         q_err = geodesic_rotation(self._last_q_out, q_target)
         self._learn_backward(q_err, optimizers, hidden_list)
+
+
+class OctonionSequential:
+    """Stack of OctonionPerceptron layers; same act–observe–correct flow as Sequential (quaternion)."""
+
+    def __init__(self, layers: list[OctonionPerceptron]) -> None:
+        self.layers = list(layers)
+        self._last_o_out: Octonion | None = None
+
+    def forward(self, x: np.ndarray) -> np.ndarray:
+        """Run input through all layers. Input (n, 8); returns final output (1, 8)."""
+        x = np.atleast_2d(x)
+        for layer in self.layers:
+            _, o_out = layer.predict(x)
+            x = np.atleast_2d(as_float_array(o_out))
+        self._last_o_out = Octonion.from_components(x[0])
+        return x
+
+    def predict_label(self, x: np.ndarray) -> int:
+        """+1 if final output.x0 >= 0 else -1."""
+        self.forward(x)
+        return 1 if self._last_o_out and self._last_o_out.x0 >= 0 else -1
+
+    def _learn_backward(
+        self,
+        o_target: Octonion,
+        optimizers: list,
+        hidden_list: list[np.ndarray],
+    ) -> None:
+        """Target propagation: each layer gets its real activation and a target output.
+
+        Pre-compute all targets from current (pre-update) weights so they are consistent;
+        then apply updates. Last layer target = label; target[i] = target[i+1] * w[i+1]^{-1}.
+        """
+        L = len(self.layers)
+        targets: list[Octonion] = [None] * L  # type: ignore[list-item]
+        targets[L - 1] = o_target / abs(o_target)
+        for i in range(L - 2, -1, -1):
+            t = targets[i + 1] * self.layers[i + 1].weight.inverse()
+            targets[i] = t / abs(t)
+        for i in range(L - 1, -1, -1):
+            inp = hidden_list[i]
+            target_label = 1 if targets[i].x0 >= 0 else -1
+            u, _ = self.layers[i].compute_update(inp, target_label)
+            optimizers[i].step(u)
+
+    def learn_step(
+        self,
+        x: np.ndarray,
+        label: int,
+        optimizers: list,
+    ) -> None:
+        """Act–observe–correct: forward(x), compute error, LIFO learn."""
+        x = np.atleast_2d(x)
+        hidden_list = [x.copy()]
+        for layer in self.layers:
+            _, o_out = layer.predict(x)
+            x = np.atleast_2d(as_float_array(o_out))
+            hidden_list.append(x.copy())
+        self._last_o_out = Octonion.from_components(x[0])
+        o_target = (
+            Octonion.unit()
+            if label >= 0
+            else Octonion.from_components(np.array([-1.0, 0, 0, 0, 0, 0, 0, 0]))
+        )
+        self._learn_backward(o_target, optimizers, hidden_list)

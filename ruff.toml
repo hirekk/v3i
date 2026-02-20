@@ -24,6 +24,7 @@ known-local-folder = ["src", "tests"]
 
 [lint.per-file-ignores]
 "__init__.py" = ["D415"]
+"tests/**/*.py" = ["S101"]
 
 [lint.pydocstyle]
 # Use Google-style docstrings.

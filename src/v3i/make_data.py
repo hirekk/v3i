@@ -104,6 +104,39 @@ def generate_binary_xor(
     return X[:train_size], y[:train_size], X[train_size:], y[train_size:]
 
 
+def generate_parity(
+    train_size: int,
+    test_size: int,
+    noise: float,
+    rng: np.random.Generator,
+    bits: int,
+    dim: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """k-bit parity on the centered n-cube, embedded on the (dim-1)-sphere.
+
+    Blobs sit at the 2^k vertices of the cube {-1, +1}^k, labelled ±1 by the
+    parity of the bits (the k-ary XOR). The k coordinates go into the *imaginary*
+    part (coords 1..k) of a dim-vector — real part zero — which is then
+    normalized onto the unit sphere. This embedding is linear in the bits, so it
+    preserves polynomial degree: a degree-<k readout provably cannot separate
+    k-bit parity (unlike an inverse-stereographic embedding, which is rational
+    and smears degree). Requires 1 <= bits <= dim - 1 (the imaginary dimension).
+    """
+    if not 1 <= bits <= dim - 1:
+        error_message = (
+            f"bits={bits} must be in 1..{dim - 1} (the imaginary dimensions of dim={dim})."
+        )
+        raise ValueError(error_message)
+    n_total = train_size + test_size
+    idx = rng.integers(0, 2, size=(n_total, bits))
+    y = np.where(idx.sum(axis=1) % 2 == 1, 1, -1)
+    pm = (2.0 * idx - 1.0) + rng.normal(0, noise, size=(n_total, bits))
+    x = np.zeros((n_total, dim))
+    x[:, 1 : 1 + bits] = pm
+    x = x / np.linalg.norm(x, axis=1, keepdims=True)
+    return x[:train_size], y[:train_size], x[train_size:], y[train_size:]
+
+
 def save_dataset(
     out_dir: Path, X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray, y_test: np.ndarray
 ) -> None:
@@ -119,7 +152,7 @@ def main() -> None:
     p = argparse.ArgumentParser(
         description=(
             "Generate train.npz and test.npz. Use one of --binary-1d / --binary-xor "
-            "and one of --quaternion / --octonion."
+            "/ --parity BITS and one of --quaternion / --octonion."
         )
     )
     dataset_group = p.add_mutually_exclusive_group(required=True)
@@ -132,6 +165,12 @@ def main() -> None:
         "--binary-xor",
         action="store_true",
         help="XOR on the plane (four blobs).",
+    )
+    dataset_group.add_argument(
+        "--parity",
+        type=int,
+        metavar="BITS",
+        help="BITS-bit parity on the centered cube (degree-BITS gate).",
     )
     algebra_group = p.add_mutually_exclusive_group(required=True)
     algebra_group.add_argument(
@@ -156,14 +195,25 @@ def main() -> None:
         to_1d, to_2d = to_s7_from_1d, to_s7_from_2d
 
     rng = np.random.default_rng(args.seed)
+    algebra = "octonion" if args.octonion else "quaternion"
 
-    if args.binary_1d:
-        out_dir = Path("data") / "binary-1d" / ("octonion" if args.octonion else "quaternion")
+    if args.parity is not None:
+        out_dir = Path("data") / f"parity-{args.parity}" / algebra
+        X_tr, y_tr, X_te, y_te = generate_parity(
+            args.train_size,
+            args.test_size,
+            args.noise,
+            rng,
+            bits=args.parity,
+            dim=8 if args.octonion else 4,
+        )
+    elif args.binary_1d:
+        out_dir = Path("data") / "binary-1d" / algebra
         X_tr, y_tr, X_te, y_te = generate_binary_1d(
             args.train_size, args.test_size, args.noise, rng, to_sphere=to_1d
         )
     else:
-        out_dir = Path("data") / "binary-xor" / ("octonion" if args.octonion else "quaternion")
+        out_dir = Path("data") / "binary-xor" / algebra
         X_tr, y_tr, X_te, y_te = generate_binary_xor(
             args.train_size, args.test_size, args.noise, rng, to_sphere=to_2d
         )

@@ -24,6 +24,7 @@ import quaternion as quaternion_np
 from v3i.algebra import Octonion
 from v3i.make_data import generate_binary_1d
 from v3i.make_data import generate_binary_xor
+from v3i.make_data import generate_parity
 from v3i.make_data import to_s3_from_1d
 from v3i.make_data import to_s3_from_2d
 from v3i.make_data import to_s7_from_1d
@@ -39,17 +40,22 @@ from v3i.models.perceptron.quaternion import QuaternionSimpleOptimizer
 # Best homogeneous linear separator on embedded XOR (docs/research/isometry-ceiling.md)
 XOR_LINEAR_CEILING = 0.75
 
+# Shared dataset size/noise for every in-memory split.
+TRAIN_SIZE, TEST_SIZE, NOISE = 800, 200, 0.1
+
 
 def make_dataset(
-    dataset: str, algebra_dim: int, seed: int
+    dataset: str, algebra_dim: int, seed: int, bits: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Generate train/test split on S^3 (dim 4) or S^7 (dim 8) in memory."""
     rng = np.random.default_rng(seed)
+    if dataset == "parity":
+        return generate_parity(TRAIN_SIZE, TEST_SIZE, NOISE, rng, bits=bits, dim=algebra_dim)
     if dataset == "binary-1d":
         to_sphere = to_s3_from_1d if algebra_dim == 4 else to_s7_from_1d
-        return generate_binary_1d(800, 200, 0.1, rng, to_sphere=to_sphere)
+        return generate_binary_1d(TRAIN_SIZE, TEST_SIZE, NOISE, rng, to_sphere=to_sphere)
     to_sphere = to_s3_from_2d if algebra_dim == 4 else to_s7_from_2d
-    return generate_binary_xor(800, 200, 0.1, rng, to_sphere=to_sphere)
+    return generate_binary_xor(TRAIN_SIZE, TEST_SIZE, NOISE, rng, to_sphere=to_sphere)
 
 
 def geodesic_loss(outputs: np.ndarray, y: np.ndarray) -> float:
@@ -215,7 +221,10 @@ def run_baselines(
 def main() -> None:
     """CLI entry point."""
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--dataset", choices=["binary-1d", "binary-xor"], default="binary-xor")
+    p.add_argument("--dataset", choices=["binary-1d", "binary-xor", "parity"], default="binary-xor")
+    p.add_argument(
+        "--bits", type=int, default=3, help="Parity bits (dataset=parity; degree of the gate)."
+    )
     p.add_argument(
         "--model",
         choices=["quaternion", "quaternion-stack", "octonion", "octonion-stack", "baselines"],
@@ -231,10 +240,11 @@ def main() -> None:
     args = p.parse_args()
 
     algebra_dim = 4 if args.model.startswith("quaternion") else 8
-    data = make_dataset(args.dataset, algebra_dim, args.data_seed)
+    data = make_dataset(args.dataset, algebra_dim, args.data_seed, bits=args.bits)
 
     config = {
         "dataset": args.dataset,
+        "bits": args.bits if args.dataset == "parity" else None,
         "model": args.model,
         "layers": args.layers if args.model.endswith("stack") else 1,
         "epochs": args.epochs,
@@ -254,7 +264,8 @@ def main() -> None:
         result = {"config": config} | run_model(harness, data, args.epochs, args.seed)
         config["model"] = result["model"]  # resolved name, e.g. octonion-stack-2
 
-    tag = args.tag or f"{config['model']}-{args.dataset}-s{args.seed}"
+    dataset_tag = f"parity{args.bits}" if args.dataset == "parity" else args.dataset
+    tag = args.tag or f"{config['model']}-{dataset_tag}-s{args.seed}"
     args.out_dir.mkdir(exist_ok=True)
     out_path = args.out_dir / f"{tag}.json"
     out_path.write_text(json.dumps(result, indent=1))

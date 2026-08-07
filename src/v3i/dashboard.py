@@ -111,15 +111,27 @@ def metric_traces(
     return traces
 
 
+# Per-dataset accuracy reference: (level, hline label, tile-delta word). The one
+# source of truth for both the accuracy panel's reference line and the tile delta;
+# datasets absent here get neither.
+DATASET_REFERENCE = {
+    "binary-xor": (0.75, "75% linear ceiling (proven)", "ceiling"),
+    "parity": (0.5, "50% chance", "chance"),
+}
+
+
 def reference_lines(fig: go.Figure, runs: dict[str, dict], selected: list[str]) -> None:
-    """75% ceiling for XOR runs and baseline test accuracies, as recessive refs."""
-    if any(runs[n]["config"]["dataset"] == "binary-xor" for n in selected):
-        fig.add_hline(
-            y=0.75,
-            line={"color": MUTED, "dash": "dash", "width": 1},
-            annotation_text="75% linear ceiling (proven)",
-            annotation_font_color=MUTED,
-        )
+    """Dataset-appropriate reference lines and baseline test accuracies."""
+    for dataset in {runs[n]["config"]["dataset"] for n in selected}:
+        ref = DATASET_REFERENCE.get(dataset)
+        if ref is not None:
+            level, label, _ = ref
+            fig.add_hline(
+                y=level,
+                line={"color": MUTED, "dash": "dash", "width": 1},
+                annotation_text=label,
+                annotation_font_color=MUTED,
+            )
     for run in runs.values():
         for b in run.get("baselines", []):
             fig.add_hline(
@@ -165,12 +177,11 @@ def training_view() -> None:
     tiles = st.columns(len(selected))
     for tile, name in zip(tiles, selected, strict=True):
         final = runs[name]["metrics"][-1]
-        is_xor = runs[name]["config"]["dataset"] == "binary-xor"
-        tile.metric(
-            label=name,
-            value=f"{final['test_acc']:.1%}",
-            delta=f"{final['test_acc'] - 0.75:+.1%} vs ceiling" if is_xor else None,
-        )
+        cfg = runs[name]["config"]
+        ref = DATASET_REFERENCE.get(cfg["dataset"])
+        delta = f"{final['test_acc'] - ref[0]:+.1%} vs {ref[2]}" if ref is not None else None
+        label = name if not cfg.get("bits") else f"{name} ({cfg['bits']}-bit)"
+        tile.metric(label=label, value=f"{final['test_acc']:.1%}", delta=delta)
 
     acc = go.Figure(layout=base_layout("Accuracy", "accuracy"))
     for t in metric_traces(runs, selected, hue, "acc"):

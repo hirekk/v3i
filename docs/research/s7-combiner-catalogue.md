@@ -164,8 +164,9 @@ draw noise, as the identity predicts. **Killed: dominated.**
 **A2. Commutator, raw** `[x·w₁, x·w₂]`. Pure imaginary (deep dive §3.1), so
 `re ≡ 0`: the screen's 0.504/0.515 is selection noise on an exactly-zero
 signal. Same fate for any combiner ending in a raw cross product
-(`[a,b] = 2·Im(a)×Im(b)` up to real-part cross terms) or raw associator.
-**Killed: invisible.** (Rubric point (a) of the ticket, now with numbers.)
+(`[a,b] = 2·Im(a)×₇Im(b)` exactly, real parts cancel *(verified)*) or raw
+associator. **Killed: invisible.** (The ticket's readout-visibility rubric
+point, now with numbers.)
 
 **A3. Commutator rotor** `normalize([x·w₁, x·w₂])·w₃`. The rotor
 multiplication moves the pure-imaginary commutator off the imaginary
@@ -191,8 +192,8 @@ separate candidate — a free capacity knob on branch products** (one extra
 7-parameter axis) if C2 wins the head-to-head.
 
 **A5. Additive associator channel**
-`normalize(x·w₀ + [x·w₁, c, x·w₂])` — the deep dive's row-2 candidate
-(`§3.4`), taken at its word. **Theorem (own derivation, verified):** the
+`normalize(x·w₀ + [x·w₁, c, x·w₂])` — the deep dive's quadratic associator
+channel (§3.4 and §7 row 2), taken at its word. **Theorem (own derivation, verified):** the
 associator contributes *zero* to the numerator's real part and only a positive
 scalar to the denominator, so
 `sign(re(y)) = sign(⟨x, w̄₀⟩)` **exactly** — grade S0, ceiling-bound. The
@@ -257,18 +258,25 @@ gate variant of C1; test only if κ's kink proves to be a training pathology.**
 y = normalize(X₃(x·w₁, x·w₂, x·w₃)),   X₃(u,v,w) = ½(u(v̄w) − w(v̄u))
 ```
 
-`X₃` is the 3-fold vector cross product of ℝ⁸ (Brown–Gray: 3-fold cross
-products exist only in dims 4 and 8; Harvey–Lawson build the Cayley 4-form
-from it, `Φ(u,v,w,z) = ⟨X₃-type product, z⟩`). Its screen-verified properties
-*(all verified)*: `|X₃(u,v,w)| = vol(u,v,w)` — the parallelepiped volume, to
-7.2e−16 — so on unit *orthogonal* triples it is exactly on-sphere;
+`X₃` is the 3-fold vector cross product of ℝ⁸ — exactly Harvey–Lawson's
+Def. B.3, alternating with `|x×y×z| = |x∧y∧z|` by their Lemma B.4; Brown–Gray
+prove 3-fold cross products exist *only* in dims 4 and 8, and the Cayley
+calibration is built from it: `Φ(x,y,z,w) = ⟨x, y×z×w⟩` (H–L Def. 1.21,
+comass 1, equality on Cayley 4-planes). Screen-verified against the project
+algebra *(all verified)*: `|X₃(u,v,w)| = vol(u,v,w)` — the parallelepiped
+volume, to 7.2e−16 — so on unit *orthogonal* triples it is exactly on-sphere;
 antisymmetric in the outer slots (0.0); output orthogonal to all three
 arguments (≤1.8e−16). Normalization is needed only against the degenerate
 locus (linearly dependent images — measure zero). Grade S3, cubic readout.
+A pleasing structural fact (H–L Prop. B.14): on purely *imaginary* triples,
+`re(X₃) = φ(x,y,z)` and `Im(X₃) = ½[x,y,z]` — the triple cross packages the
+associative form and the associator as the real and imaginary parts of one
+product; the combiner feeds it full octonion images, so its readout is
+strictly richer than either gate alone.
 
 ℍ control — **the collapse theorem** *(own derivation, verified to 2.8e−16)*:
 for unit quaternionic `x` and weights `a,b,c`, associativity gives
-`(xa)(\overline{xb})(xc) = xa·b̄x̄·xc = x(ab̄c)`, so
+`(xa)·conj(xb)·(xc) = xa·b̄x̄·xc = x(ab̄c)` (the interior `x̄x = 1` cancels), so
 
 ```
 X₃(x·a, x·b, x·c) = x · ½(ab̄c − cb̄a)
@@ -282,7 +290,7 @@ sourced in non-associativity, and the ablation is exact, not just empirical.
 
 Transport: trilinear with each slot a composition of multiplications and a
 conjugation — exactly invertible in any single slot on the nondegenerate
-locus; alternativity gives `X₃(u,v,u) `-type degeneracies analogous to the
+locus; alternativity gives `X₃(u,v,u)`-type degeneracies analogous to the
 associator's, and the normalization is benign away from dependent triples
 (unlike A6, whose singular locus is the *ablation* locus — X₃'s singular locus
 is merely coincident images). Screen: **0.899**/0.900/**0.009** ‖ ℍ
@@ -490,35 +498,50 @@ by the error wave — that is exactly what #6 must now measure.
 
 ## References
 
+All records and the attributed mathematics below were re-verified against
+primary sources (arXiv/publisher/scanned originals) during this survey.
+
 - J. C. Baez, *The Octonions*, Bull. Amer. Math. Soc. 39 (2002) 145–205,
-  [arXiv:math/0105155](https://arxiv.org/abs/math/0105155) — G₂ = Aut(𝕆),
-  cross products, Hopf fibrations from division algebras, triality.
+  [arXiv:math/0105155](https://arxiv.org/abs/math/0105155) — §4.1: G₂ =
+  Aut(𝕆), stabilizer of the 3-form ⟨x, yz⟩ on Im 𝕆 and of the cross product
+  `a×b = ½[a,b]`; §3.1: all four Hopf bundles, including S³ → S⁷ → S⁴; §2.4:
+  triality and Spin(8).
 - R. Harvey, H. B. Lawson, *Calibrated Geometries*, Acta Math. 148 (1982)
-  47–157, [DOI 10.1007/BF02392726](https://doi.org/10.1007/BF02392726) — the
-  associative 3-form φ and coassociative 4-form ψ as comass-1 calibrations;
-  the triple cross product and the Cayley 4-form on ℝ⁸ ≅ 𝕆. (Convention note:
-  H–L define φ(x,y,z) = ⟨x, y×z⟩ on Im 𝕆 and build the Cayley form from the
-  triple cross product; the exact formulas used here are re-verified
-  numerically against the project algebra by the companion script, so no
-  convention mismatch can silently propagate.)
+  47–157, [DOI 10.1007/BF02392726](https://doi.org/10.1007/BF02392726) —
+  Eq. (1.1): φ(x,y,z) = ⟨x, yz⟩ on Im 𝕆; Thm. 1.4: comass 1, equality iff
+  associative 3-plane; Thm. 1.6: ⟨x,yz⟩² + ¼|[x,y,z]|² = |x∧y∧z|²;
+  Def. 1.11: ψ(x,y,z,w) = ½⟨x, [y,z,w]⟩, ψ = *φ (Prop. 1.14); Def. B.3:
+  x×y×z = ½(x(ȳz) − z(ȳx)); Lemma B.4: alternating, |x×y×z| = |x∧y∧z|;
+  Prop. B.14: on imaginary triples, real part ⟨x,yz⟩ and imaginary part
+  ½[x,y,z]; Def. 1.21/Thm. 1.24: the Cayley calibration Φ(x,y,z,w) =
+  ⟨x, y×z×w⟩, comass 1. All formulas additionally re-verified numerically
+  against the project algebra by the companion script.
 - R. B. Brown, A. Gray, *Vector cross products*, Comment. Math. Helv. 42
-  (1967) 222–236 — r-fold cross products; 2-fold only in dims 3 and 7, 3-fold
-  only in dims 4 and 8; the norm-equals-volume axiom.
+  (1967) 222–236, [DOI 10.1007/BF02564418](https://doi.org/10.1007/BF02564418)
+  — r-fold cross products with the Gram-determinant norm axiom; 2-fold only
+  in dims 3 and 7, 3-fold only in dims 4 and 8.
 - Y. Nambu, *Generalized Hamiltonian Dynamics*, Phys. Rev. D 7 (1973)
   2405–2412, [DOI 10.1103/PhysRevD.7.2405](https://doi.org/10.1103/PhysRevD.7.2405)
-  — ternary brackets, flows with two Hamiltonians.
+  — flows `ṙ = ∇H × ∇G` with two Hamiltonians; the Jacobian-determinant
+  ternary bracket and its n-ary extension.
 - J. A. de Azcárraga, J. M. Izquierdo, *n-ary algebras: a review with
   applications*, J. Phys. A 43 (2010) 293001,
-  [arXiv:1005.1028](https://arxiv.org/abs/1005.1028) — Nambu and Filippov
-  structures; ternary brackets and the octonionic cross product context.
+  [arXiv:1005.1028](https://arxiv.org/abs/1005.1028) — Nambu–Poisson and
+  Filippov structures; the euclidean Filippov 3-algebra realized by the
+  3-fold vector product on ℝ⁴. (Caveat: its body does not treat the 7D
+  two-fold cross product or octonions directly — those appear only in works
+  it cites; the octonionic side of B4 rests on Harvey–Lawson and Baez.)
 - H. Hopf, *Über die Abbildungen von Sphären auf Sphären niedrigerer
-  Dimension*, Fund. Math. 25 (1935) 427–440 — the S⁷ → S⁴ fibration (the
-  1931 Math. Ann. paper gives S³ → S²); D. W. Lyons, *An Elementary
-  Introduction to the Hopf Fibration*, Math. Mag. 76 (2003) 87–98 — the
-  fiber picture used for H1.
-- R. Moufang, *Zur Struktur von Alternativkörpern*, Math. Ann. 110 (1935) —
+  Dimension*, Fund. Math. 25 (1935) 427–440 — the S³ ⊂ S⁷ → S⁴ fibration
+  (his 1931 Math. Ann. paper gives S³ → S²); D. W. Lyons, *An Elementary
+  Introduction to the Hopf Fibration*, Math. Mag. 76(2) (2003) 87–98 — the
+  elementary fiber picture (S³ → S² case); the quaternionic map
+  h(a,b) = (|a|²−|b|², 2ab̄) with fibers {(aq, bq) : |q| = 1} used in H1 is
+  the standard form (Baez §3.1).
+- R. Moufang, *Zur Struktur von Alternativkörpern*, Math. Ann. 110 (1935)
+  416–430, [DOI 10.1007/BF01448037](https://doi.org/10.1007/BF01448037) —
   the exact identities behind every transport claim (via the
-  [deep dive](octonion-structure-deep-dive.md) §2).
+  [deep dive](octonion-structure-deep-dive.md) §2; also H–L Lemma A.16).
 
 Where a claim is not attributable to the above it is marked *own derivation*
 and verified by [s7_combiner_screen.py](s7_combiner_screen.py); the additive

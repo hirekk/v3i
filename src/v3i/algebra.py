@@ -263,17 +263,29 @@ def slerp(o1: Octonion, o2: Octonion, t: float) -> Octonion:
 
 
 def cross_product_7d(v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
-    """7D cross product (Fano plane). Hard-coded to avoid triplet loop overhead."""
-    a1, a2, a3, a4, a5, a6, a7 = v1[0], v1[1], v1[2], v1[3], v1[4], v1[5], v1[6]
-    b1, b2, b3, b4, b5, b6, b7 = v2[0], v2[1], v2[2], v2[3], v2[4], v2[5], v2[6]
+    """7D cross product of this algebra: u x v = Im(o_u * o_v).
+
+    o_u, o_v are the pure-imaginary octonions with imaginary parts v1, v2;
+    for such x, y the product is xy = -<u,v> + u x v. Derived from the same
+    Cayley-Dickson helpers as Octonion.__mul__ so the two can never diverge.
+    Takes (7,) arrays, returns a (7,) float64 array.
+    """
+    # Split each pure-imaginary octonion (0, u) into quaternion halves
+    # a = (0, u1, u2, u3), b = (u4, u5, u6, u7), as in Octonion.__mul__.
+    a = np.empty(4, dtype=np.float64)
+    a[0] = 0.0
+    a[1:] = v1[:3]
+    b = np.asarray(v1[3:7], dtype=np.float64)
+    c = np.empty(4, dtype=np.float64)
+    c[0] = 0.0
+    c[1:] = v2[:3]
+    d = np.asarray(v2[3:7], dtype=np.float64)
+    # Cayley-Dickson: (a,b)(c,d) = (ac - d*b, da + bc*); keep the imaginary part.
+    lo = _quat_mul(a, c) - _quat_mul(_quat_conj(d), b)
+    hi = _quat_mul(d, a) + _quat_mul(b, _quat_conj(c))
     res = np.empty(7, dtype=np.float64)
-    res[0] = (a2 * b3 - a3 * b2) + (a4 * b7 - a7 * b4) + (a5 * b6 - a6 * b5)
-    res[1] = (a3 * b1 - a1 * b3) + (a4 * b6 - a6 * b4) + (a7 * b5 - a5 * b7)
-    res[2] = (a1 * b2 - a2 * b1) + (a4 * b5 - a5 * b4) + (a6 * b7 - a7 * b6)
-    res[3] = (a1 * b7 - a7 * b1) + (a6 * b2 - a2 * b6) + (a5 * b3 - a3 * b5)
-    res[4] = (a6 * b1 - a1 * b6) + (a7 * b2 - a2 * b7) + (a3 * b4 - a4 * b3)
-    res[5] = (a1 * b5 - a5 * b1) + (a2 * b4 - a4 * b2) + (a7 * b3 - a3 * b7)
-    res[6] = (a4 * b1 - a1 * b4) + (a2 * b5 - a5 * b2) + (a3 * b6 - a6 * b3)
+    res[:3] = lo[1:]
+    res[3:] = hi
     return res
 
 

@@ -75,14 +75,14 @@ def test_cross_product_7d_matches_basis_products() -> None:
 
 
 def test_cross_product_7d_matches_octonion_product() -> None:
-    """u x v == Im(o_u * o_v) for random pure-imaginary octonions."""
+    """U x v == Im(o_u * o_v) for random pure-imaginary octonions."""
     for u, v in _random_7d_pairs(_TRIALS):
         expected = (_imaginary_octonion(u) * _imaginary_octonion(v)).im
         assert np.allclose(cross_product_7d(u, v), expected, atol=1e-12)
 
 
 def test_cross_product_7d_anticommutativity() -> None:
-    """u x v == -(v x u)."""
+    """U x v == -(v x u)."""
     for u, v in _random_7d_pairs(_TRIALS):
         assert np.allclose(cross_product_7d(u, v), -cross_product_7d(v, u), atol=1e-12)
 

@@ -10,5 +10,4 @@ ForwardType = Literal[
     "right_multiplication",
     "algebraic_sum",
     "algebraic_mean",
-    "two_bracketings",  # Octonion-only: combine left- and right-associated products
 ]

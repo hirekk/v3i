@@ -148,19 +148,6 @@ class OctonionPerceptron:
         return 1 if output.re >= 0 else -1
 
 
-class OctonionForwardOptimizer:
-    """Orchestrates the Forward-Wave correction across a chain."""
-
-    def __init__(self, layers: list[OctonionPerceptron]) -> None:
-        self.layers = layers
-
-    def step(self, global_error: np.ndarray) -> None:
-        """Propagates the error wave through all layers."""
-        current_error = global_error
-        for layer in self.layers:
-            current_error = layer.correct(current_error)
-
-
 class OctonionSequential:
     """A sequential container for Octonion Perceptrons.
 
@@ -203,7 +190,8 @@ class OctonionSequential:
         # 1. Observe the terminal output
         p = self.layers[-1].last_output
         if p is None:
-            raise RuntimeError("Must call forward() before correct().")
+            error_message = "Must call forward() before correct()."
+            raise RuntimeError(error_message)
 
         # 2. Compute Global Error r = log(p_inv * target)
         # This defines the "Torque" needed to rotate the output to the target.

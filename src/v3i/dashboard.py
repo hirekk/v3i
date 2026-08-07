@@ -22,21 +22,39 @@ RUNS_DIR = Path("runs")
 # Validated categorical palette (dataviz reference, light mode, fixed order).
 SERIES = ["#2a78d6", "#008300", "#e87ba4", "#eda100", "#1baf7a", "#eb6834", "#4a3aa7", "#e34948"]
 SURFACE, INK, INK_2, MUTED, GRID, AXIS = (
-    "#fcfcfb", "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7",
+    "#fcfcfb",
+    "#0b0b0b",
+    "#52514e",
+    "#898781",
+    "#e1e0d9",
+    "#c3c2b7",
 )
 FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif'
 
 
 def base_layout(title: str, y_title: str) -> go.Layout:
+    """Shared chart chrome: surface, ink, grid, unified hover."""
     return go.Layout(
         title={"text": title, "font": {"size": 15, "color": INK}},
         font={"family": FONT, "size": 12, "color": INK_2},
         paper_bgcolor=SURFACE,
         plot_bgcolor=SURFACE,
-        xaxis={"title": "epoch", "gridcolor": GRID, "linecolor": AXIS, "zeroline": False,
-               "tickcolor": AXIS, "tickfont": {"color": MUTED}},
-        yaxis={"title": y_title, "gridcolor": GRID, "linecolor": AXIS, "zeroline": False,
-               "tickcolor": AXIS, "tickfont": {"color": MUTED}},
+        xaxis={
+            "title": "epoch",
+            "gridcolor": GRID,
+            "linecolor": AXIS,
+            "zeroline": False,
+            "tickcolor": AXIS,
+            "tickfont": {"color": MUTED},
+        },
+        yaxis={
+            "title": y_title,
+            "gridcolor": GRID,
+            "linecolor": AXIS,
+            "zeroline": False,
+            "tickcolor": AXIS,
+            "tickfont": {"color": MUTED},
+        },
         hovermode="x unified",
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02},
         margin={"l": 56, "r": 24, "t": 56, "b": 44},
@@ -46,10 +64,12 @@ def base_layout(title: str, y_title: str) -> go.Layout:
 
 @st.cache_data
 def load_runs(mtimes: tuple[tuple[str, float], ...]) -> dict[str, dict]:
+    """Load run JSONs, cached on (path, mtime) so edits invalidate."""
     return {Path(name).stem: json.loads(Path(name).read_text()) for name, _ in mtimes}
 
 
 def discover() -> dict[str, dict]:
+    """Discover all runs under runs/."""
     files = sorted(RUNS_DIR.glob("*.json"))
     return load_runs(tuple((str(f), f.stat().st_mtime) for f in files))
 
@@ -64,52 +84,76 @@ def metric_traces(
         if not metrics:
             continue
         epochs = [m["epoch"] for m in metrics]
-        traces.append(go.Scatter(
-            x=epochs, y=[m[f"test_{key}"] for m in metrics], name=name,
-            mode="lines", line={"color": hue[name], "width": 2}, legendgroup=name,
-        ))
-        traces.append(go.Scatter(
-            x=epochs, y=[m[f"train_{key}"] for m in metrics], name=f"{name} (train)",
-            mode="lines", line={"color": hue[name], "width": 2, "dash": "dot"},
-            legendgroup=name, showlegend=False, opacity=0.55,
-        ))
+        traces.append(
+            go.Scatter(
+                x=epochs,
+                y=[m[f"test_{key}"] for m in metrics],
+                name=name,
+                mode="lines",
+                line={"color": hue[name], "width": 2},
+                legendgroup=name,
+            )
+        )
+        traces.append(
+            go.Scatter(
+                x=epochs,
+                y=[m[f"train_{key}"] for m in metrics],
+                name=f"{name} (train)",
+                mode="lines",
+                line={"color": hue[name], "width": 2, "dash": "dot"},
+                legendgroup=name,
+                showlegend=False,
+                opacity=0.55,
+            )
+        )
     return traces
 
 
 def reference_lines(fig: go.Figure, runs: dict[str, dict], selected: list[str]) -> None:
     """75% ceiling for XOR runs and baseline test accuracies, as recessive refs."""
     if any(runs[n]["config"]["dataset"] == "binary-xor" for n in selected):
-        fig.add_hline(y=0.75, line={"color": MUTED, "dash": "dash", "width": 1},
-                      annotation_text="75% linear ceiling (proven)",
-                      annotation_font_color=MUTED)
-    for name, run in runs.items():
+        fig.add_hline(
+            y=0.75,
+            line={"color": MUTED, "dash": "dash", "width": 1},
+            annotation_text="75% linear ceiling (proven)",
+            annotation_font_color=MUTED,
+        )
+    for run in runs.values():
         for b in run.get("baselines", []):
-            fig.add_hline(y=b["test_acc"], line={"color": AXIS, "dash": "dot", "width": 1},
-                          annotation_text=f"{b['model']} {b['test_acc']:.2f}",
-                          annotation_position="bottom right",
-                          annotation_font_color=MUTED)
+            fig.add_hline(
+                y=b["test_acc"],
+                line={"color": AXIS, "dash": "dot", "width": 1},
+                annotation_text=f"{b['model']} {b['test_acc']:.2f}",
+                annotation_position="bottom right",
+                annotation_font_color=MUTED,
+            )
 
 
 def main() -> None:
+    """Render the comparison dashboard."""
     st.set_page_config(page_title="v3i experiments", layout="wide")
     st.title("v3i — hypercomplex perceptron experiments")
 
     runs = discover()
     trained = [n for n, r in runs.items() if r.get("metrics")]
     if not trained:
-        st.info("No runs found. Create some with: "
-                "`uv run python -m v3i.run_experiment --dataset binary-xor --model octonion`")
+        st.info(
+            "No runs found. Create some with: "
+            "`uv run python -m v3i.run_experiment --dataset binary-xor --model octonion`"
+        )
         return
 
     with st.sidebar:
         st.header("Runs")
-        selected = st.multiselect("Compare runs", trained, default=trained[:4],
-                                  max_selections=len(SERIES))
+        selected = st.multiselect(
+            "Compare runs", trained, default=trained[:4], max_selections=len(SERIES)
+        )
         datasets = {runs[n]["config"]["dataset"] for n in selected}
         if len(datasets) > 1:
             st.warning(f"Mixed datasets selected: {', '.join(sorted(datasets))}")
-        st.caption("Solid line = test, dotted = train. Reference lines are "
-                   "baselines fit on the same data.")
+        st.caption(
+            "Solid line = test, dotted = train. Reference lines are baselines fit on the same data."
+        )
 
     if not selected:
         st.info("Select at least one run.")
@@ -134,14 +178,18 @@ def main() -> None:
         acc.add_trace(t)
     reference_lines(acc, runs, selected)
     acc.update_yaxes(range=[0, 1.02], tickformat=".0%")
-    st.plotly_chart(acc, width='stretch')
+    st.plotly_chart(acc, width="stretch")
 
     loss = go.Figure(layout=base_layout("Geodesic loss (mean angle to target pole)", "radians"))
     for t in metric_traces(runs, selected, hue, "loss"):
         loss.add_trace(t)
-    loss.add_hline(y=np.pi / 2, line={"color": MUTED, "dash": "dash", "width": 1},
-                   annotation_text="π/2 = orthogonal (chance)", annotation_font_color=MUTED)
-    st.plotly_chart(loss, width='stretch')
+    loss.add_hline(
+        y=np.pi / 2,
+        line={"color": MUTED, "dash": "dash", "width": 1},
+        annotation_text="π/2 = orthogonal (chance)",
+        annotation_font_color=MUTED,
+    )
+    st.plotly_chart(loss, width="stretch")
 
     st.subheader("Weight evolution")
     col_run, col_layer = st.columns(2)
@@ -154,18 +202,28 @@ def main() -> None:
     dim = snaps.shape[1]
     comp = go.Figure(layout=base_layout(f"{w_run} — layer {layer} weight components", "value"))
     for i in range(dim):
-        comp.add_trace(go.Scatter(
-            x=epochs, y=snaps[:, i], name=f"e{i}" if i else "re",
-            mode="lines", line={"color": SERIES[i % len(SERIES)], "width": 2},
-        ))
-    st.plotly_chart(comp, width='stretch')
+        comp.add_trace(
+            go.Scatter(
+                x=epochs,
+                y=snaps[:, i],
+                name=f"e{i}" if i else "re",
+                mode="lines",
+                line={"color": SERIES[i % len(SERIES)], "width": 2},
+            )
+        )
+    st.plotly_chart(comp, width="stretch")
 
     angle = go.Figure(layout=base_layout("Angle of weight to identity", "radians"))
-    angle.add_trace(go.Scatter(
-        x=epochs, y=np.arccos(np.clip(snaps[:, 0], -1, 1)),
-        mode="lines", line={"color": SERIES[0], "width": 2}, showlegend=False,
-    ))
-    st.plotly_chart(angle, width='stretch')
+    angle.add_trace(
+        go.Scatter(
+            x=epochs,
+            y=np.arccos(np.clip(snaps[:, 0], -1, 1)),
+            mode="lines",
+            line={"color": SERIES[0], "width": 2},
+            showlegend=False,
+        )
+    )
+    st.plotly_chart(angle, width="stretch")
 
     with st.expander("Table view (all selected runs, per epoch)"):
         rows = [
@@ -173,7 +231,7 @@ def main() -> None:
             for name in selected
             for m in runs[name]["metrics"]
         ]
-        st.dataframe(rows, width='stretch')
+        st.dataframe(rows, width="stretch")
 
 
 main()

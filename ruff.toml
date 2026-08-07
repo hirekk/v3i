@@ -12,6 +12,8 @@ ignore = [
     "CPY",
     "PLR",
     "ERA001",
+    "N803",  # sklearn-style X, y argument names
+    "N806",  # sklearn-style X_train/X_test locals
 ]
 fixable = ["ALL"]
 unfixable = []
@@ -25,6 +27,8 @@ known-local-folder = ["src", "tests"]
 [lint.per-file-ignores]
 "__init__.py" = ["D415"]
 "tests/**/*.py" = ["S101"]
+"src/v3i/run_experiment.py" = ["T201"]  # CLI reports via print
+"src/v3i/make_data.py" = ["T201"]  # CLI reports via print
 
 [lint.pydocstyle]
 # Use Google-style docstrings.

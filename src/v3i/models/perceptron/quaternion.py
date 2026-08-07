@@ -40,7 +40,6 @@ class QuaternionPerceptron:
         """Initialize the quaternion perceptron with a single quaternion weight."""
         self.forward_type = forward_type
         self.learning_rate = learning_rate
-        self.error_store: list[quaternion.quaternion] = []
         self.random_seed = random_seed
         self._rng = np.random.default_rng(seed=random_seed)
 
@@ -62,42 +61,6 @@ class QuaternionPerceptron:
         if components[0] < 0:
             components = -components
         return quaternion.quaternion(*components)
-
-    # def get_angle(self) -> float:
-    #     """Get the angle of a quaternion."""
-    #     angle = quaternion.rotation_intrinsic_distance(self.weight, quaternion.one)
-    #     if angle < 0 or angle > 2 * np.pi:
-    #         msg = f"Angle is out of range [0, 2π]: {angle}"
-    #         raise ValueError(msg)
-    #     return angle
-
-    # def get_axis(self, tolerance: float = 1e-10) -> np.ndarray:
-    #     """Get the axis of the weight quaternion."""
-    #     angle = self.get_angle()
-    #     if angle < tolerance:
-    #         return np.array([1, 0, 0])
-    #     return quaternion.as_rotation_vector(self.weight) / angle
-
-    # def _is_rotation_quaternion(self, q: quaternion.quaternion, tolerance: float = 1e-10) -> bool:
-    #     """Check if quaternion represents a valid rotation.
-
-    #     A rotation quaternion must be unit length.
-
-    #     Args:
-    #         q: The quaternion to check.
-    #         tolerance: The tolerance for the unit length check.
-
-    #     Returns:
-    #         True if the quaternion is a valid rotation, False otherwise.
-    #     """
-    #     norm = abs(q)
-    #     return abs(norm - 1.0) < tolerance
-
-    # def _assert_rotation_quaternion(self, q: quaternion.quaternion, msg: str = "") -> None:
-    #     """Assert that quaternion represents a valid rotation."""
-    #     if not self._is_rotation_quaternion(q):
-    #         msg = f"Invalid rotation quaternion: {msg}"
-    #         raise ValueError(msg)
 
     def _compute_geodesic_rotation(
         self,
@@ -130,28 +93,25 @@ class QuaternionPerceptron:
         return rotation
 
     def forward_average(
-        self,
-        inputs: np.ndarray,
-        tolerance: float = 1e-10,
+        self, inputs: np.ndarray
     ) -> tuple[quaternion.quaternion, quaternion.quaternion]:
         """Forward pass computing final rotation state.
 
-        Computes the average of the inputs using the eigenvector of the sum of outer products of the inputs.
+        Computes the average of the inputs using the eigenvector of the sum of
+        outer products of the inputs.
 
         Args:
             inputs: Array of quaternions representing the input orientations.
-            tolerance: Tolerance for quaternion normalization.
 
         Returns:
-            Tuple containing incoming quaternion (accumulated input orientations) and outgoing quaternion (final orientation).
+            Tuple containing incoming quaternion (accumulated input
+            orientations) and outgoing quaternion (final orientation).
         """
         # Compute the sum of outer products in a vectorized manner
         M = np.einsum("ij,ik->jk", inputs, inputs)
         eigvals, eigvecs = np.linalg.eig(M)
         max_eigval_index = np.argmax(eigvals)
         reduced = quaternion.quaternion(*eigvecs[:, max_eigval_index])
-        # if reduced.w < 0:
-        #     reduced = -reduced
 
         result = reduced * self.weight
         return reduced, result
@@ -168,7 +128,8 @@ class QuaternionPerceptron:
             tolerance: Tolerance for quaternion normalization.
 
         Returns:
-            Tuple containing incoming quaternion (accumulated input orientations) and outgoing quaternion (final orientation).
+            Tuple containing incoming quaternion (accumulated input
+            orientations) and outgoing quaternion (final orientation).
         """
         # Accumulate inputs
         reduced = quaternion.quaternion(1, 0, 0, 0)
@@ -178,8 +139,6 @@ class QuaternionPerceptron:
                 continue
             x_n = x_q / abs(x_q)
             reduced = x_n * reduced
-        # if reduced.w < 0:
-        #     reduced = -reduced
 
         result = reduced * self.weight
         return reduced, result
@@ -196,7 +155,8 @@ class QuaternionPerceptron:
             tolerance: Tolerance for quaternion normalization.
 
         Returns:
-            Tuple containing incoming quaternion (accumulated input orientations) and outgoing quaternion (final orientation).
+            Tuple containing incoming quaternion (accumulated input
+            orientations) and outgoing quaternion (final orientation).
         """
         # Accumulate inputs
         reduced = quaternion.quaternion(1, 0, 0, 0)
@@ -206,46 +166,41 @@ class QuaternionPerceptron:
                 continue
             x_n = x_q / abs(x_q)
             reduced = reduced * x_n
-        # if reduced.w < 0:
-        #     reduced = -reduced
 
         result = reduced * self.weight
         return reduced, result
 
     def forward_algebraic_sum(
-        self,
-        inputs: np.ndarray,
-        tolerance: float = 1e-10,
+        self, inputs: np.ndarray
     ) -> tuple[quaternion.quaternion, quaternion.quaternion]:
         """Forward pass computing final rotation state.
 
-        Computes the sum of the inputs using the eigenvector of the sum of outer products of the inputs.
+        Computes the sum of the inputs using the eigenvector of the sum of outer
+        products of the inputs.
 
         Args:
             inputs: Array of quaternions representing the input orientations.
             tolerance: Tolerance for quaternion normalization.
 
         Returns:
-            Tuple containing incoming quaternion (accumulated input orientations) and outgoing quaternion (final orientation).
+            Tuple containing incoming quaternion (accumulated input
+            orientations) and outgoing quaternion (final orientation).
         """
         q_inputs = quaternion.as_quat_array(inputs)
         rot_inputs = quaternion.as_rotation_vector(q_inputs)
         reduced_vector = np.sum(rot_inputs, axis=0)
         reduced = quaternion.from_rotation_vector(reduced_vector)
-        # if reduced.w < 0:
-        #     reduced = -reduced
 
         result = reduced * self.weight
         return reduced, result
 
     def forward_algebraic_mean(
-        self,
-        inputs: np.ndarray,
-        tolerance: float = 1e-10,
+        self, inputs: np.ndarray
     ) -> tuple[quaternion.quaternion, quaternion.quaternion]:
         """Forward pass computing final rotation state.
 
-        Computes the mean of the inputs using the eigenvector of the sum of outer products of the inputs.
+        Computes the mean of the inputs using the eigenvector of the sum of outer
+        products of the inputs.
 
         Args:
             inputs: Array of quaternions representing the input orientations.
@@ -255,8 +210,6 @@ class QuaternionPerceptron:
         rot_inputs = quaternion.as_rotation_vector(q_inputs)
         reduced_vector = np.mean(rot_inputs, axis=0)
         reduced = quaternion.from_rotation_vector(reduced_vector)
-        # if reduced.w < 0:
-        #     reduced = -reduced
 
         result = reduced * self.weight
         return reduced, result
@@ -276,7 +229,10 @@ class QuaternionPerceptron:
             case "algebraic_sum":
                 q_in, q_out = self.forward_algebraic_sum(inputs=inputs)
             case _:
-                msg = f"Invalid forward type: {self.forward_type}; must be one of {ForwardType.__args__}"
+                msg = (
+                    f"Invalid forward type: {self.forward_type}; "
+                    f"must be one of {ForwardType.__args__}"
+                )
                 raise ValueError(
                     msg,
                 )
@@ -299,7 +255,6 @@ class QuaternionPerceptron:
         u = q_error**self.learning_rate
         if u.w < 0:
             u = -u
-        self.error_store.append(u)
         return u, u
 
     def apply_update(self, u: quaternion.quaternion) -> None:
@@ -317,51 +272,13 @@ class QuaternionPerceptron:
             self.weight = self.weight / abs(self.weight)
 
 
-def _tangent_space_avg(
-    quat_list: list[quaternion.quaternion], scale: float = 1.0
-) -> quaternion.quaternion:
-    """Average rotations in tangent space and return a single quaternion (scale shrinks the step)."""
-    if not quat_list:
-        return quaternion.quaternion(1, 0, 0, 0)
-    vecs = np.array([quaternion.as_rotation_vector(q) for q in quat_list])
-    avg_vec = np.mean(vecs, axis=0) * scale
-    n = np.linalg.norm(avg_vec)
-    if n < 1e-12:
-        return quaternion.quaternion(1, 0, 0, 0)
-    return quaternion.from_rotation_vector(avg_vec)
-
-
 class QuaternionSimpleOptimizer:
     """Apply every update u immediately."""
 
     def __init__(self, model: QuaternionPerceptron) -> None:
+        """Bind the optimizer to a perceptron."""
         self._model = model
 
     def step(self, u: quaternion.quaternion) -> None:
+        """Apply the update immediately."""
         self._model.apply_update(u)
-
-
-class QuaternionBatchedOptimizer:
-    """Accumulate updates and apply tangent-space average every batch_size steps."""
-
-    def __init__(self, model: QuaternionPerceptron, batch_size: int) -> None:
-        self._model = model
-        self.batch_size = batch_size
-        self._u_buf: list[quaternion.quaternion] = []
-
-    def step(self, u: quaternion.quaternion) -> None:
-        self._u_buf.append(u)
-        if len(self._u_buf) >= self.batch_size:
-            self._apply_batch()
-
-    def flush(self) -> None:
-        """Apply any remaining buffered updates (e.g. at end of epoch)."""
-        if self._u_buf:
-            self._apply_batch()
-
-    def _apply_batch(self) -> None:
-        n = len(self._u_buf)
-        scale = 1.0 / n
-        u_avg = _tangent_space_avg(self._u_buf, scale=scale)
-        self._model.apply_update(u_avg)
-        self._u_buf.clear()

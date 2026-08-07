@@ -177,3 +177,6 @@ data
 
 # Experiment artifacts
 runs/
+
+# Marimo session cache
+notebooks/__marimo__/

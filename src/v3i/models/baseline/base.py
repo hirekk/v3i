@@ -8,8 +8,8 @@ import numpy as np
 class BaselineModel(Protocol):
     """Protocol for baseline models."""
 
-    def fit_batch(self, X: np.ndarray, y: np.ndarray) -> float:
-        """Fit model on a batch of data and return accuracy."""
+    def fit(self, X: np.ndarray, y: np.ndarray) -> float:
+        """Fit model on data and return training accuracy."""
         ...
 
     def predict(self, X: np.ndarray) -> np.ndarray:

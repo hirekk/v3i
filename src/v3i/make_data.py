@@ -1,9 +1,15 @@
-"""Generate datasets on the 3-sphere or 7-sphere. train.npz, test.npz with X (n, 4) or (n, 8), y (n,) ±1."""
+"""Generate datasets on the 3-sphere or 7-sphere.
+
+train.npz, test.npz with X (n, 4) or (n, 8), y (n,) labels ±1.
+"""
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -101,6 +107,7 @@ def generate_binary_xor(
 def save_dataset(
     out_dir: Path, X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray, y_test: np.ndarray
 ) -> None:
+    """Write train.npz/test.npz to out_dir."""
     out_dir.mkdir(parents=True, exist_ok=True)
     np.savez(out_dir / "train.npz", X=X_train, y=y_train)
     np.savez(out_dir / "test.npz", X=X_test, y=y_test)
@@ -108,8 +115,12 @@ def save_dataset(
 
 
 def main() -> None:
+    """CLI entry point."""
     p = argparse.ArgumentParser(
-        description="Generate train.npz and test.npz. Use one of --binary-1d / --binary-xor and one of --quaternion / --octonion."
+        description=(
+            "Generate train.npz and test.npz. Use one of --binary-1d / --binary-xor "
+            "and one of --quaternion / --octonion."
+        )
     )
     dataset_group = p.add_mutually_exclusive_group(required=True)
     dataset_group.add_argument(
@@ -126,12 +137,12 @@ def main() -> None:
     algebra_group.add_argument(
         "--quaternion",
         action="store_true",
-        help="Map to S^3 (X n×4) via inverse stereographic.",
+        help="Map to S^3 (X n by 4) via inverse stereographic.",
     )
     algebra_group.add_argument(
         "--octonion",
         action="store_true",
-        help="Map to S^7 (X n×8) via inverse stereographic.",
+        help="Map to S^7 (X n by 8) via inverse stereographic.",
     )
     p.add_argument("--train-size", type=int, default=800)
     p.add_argument("--test-size", type=int, default=200)

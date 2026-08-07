@@ -10,6 +10,7 @@ class DecisionTreeBaseline(BaselineModel):
     """Decision tree model."""
 
     def __init__(self, max_depth: int = 1, max_leaf_nodes: int = 4, random_seed: int = 42) -> None:
+        """Configure the decision tree baseline."""
         self.model = DecisionTreeClassifier(
             max_depth=max_depth,
             max_leaf_nodes=max_leaf_nodes,

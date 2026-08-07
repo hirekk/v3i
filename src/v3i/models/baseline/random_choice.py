@@ -9,6 +9,7 @@ class RandomChoiceBaseline(BaselineModel):
     """Random baseline that guesses labels randomly."""
 
     def __init__(self, random_seed: int = 42) -> None:
+        """Configure the random-choice baseline."""
         self.rng = np.random.default_rng(random_seed)
         self.classes = [-1, 1]  # Even/odd labels
 

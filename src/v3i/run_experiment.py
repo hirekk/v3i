@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import time
 from pathlib import Path
+import time
 
 import numpy as np
 import quaternion as quaternion_np
@@ -70,6 +70,7 @@ class Harness:
     name: str
 
     def epoch(self, X: np.ndarray, y: np.ndarray, order: np.ndarray) -> None:
+        """Run one training epoch over X[order]."""
         raise NotImplementedError
 
     def outputs(self, X: np.ndarray) -> np.ndarray:
@@ -81,6 +82,7 @@ class Harness:
         raise NotImplementedError
 
     def predict_labels(self, X: np.ndarray) -> np.ndarray:
+        """Sign-of-real-part labels for each row."""
         return np.where(self.outputs(X)[:, 0] >= 0, 1, -1)
 
 
@@ -88,6 +90,7 @@ class QuaternionHarness(Harness):
     """Single QuaternionPerceptron or a Sequential stack of them."""
 
     def __init__(self, layers: int, learning_rate: float, seed: int) -> None:
+        """Build the perceptron(s) and per-layer optimizers."""
         self.name = "quaternion" if layers == 1 else f"quaternion-stack-{layers}"
         self._perceptrons = [
             QuaternionPerceptron(learning_rate=learning_rate, random_seed=seed + i)
@@ -97,6 +100,7 @@ class QuaternionHarness(Harness):
         self._optimizers = [QuaternionSimpleOptimizer(p) for p in self._perceptrons]
 
     def epoch(self, X: np.ndarray, y: np.ndarray, order: np.ndarray) -> None:
+        """One pass of per-sample geodesic updates."""
         for idx in order:
             x = np.atleast_2d(X[idx])
             label = int(y[idx])
@@ -107,6 +111,7 @@ class QuaternionHarness(Harness):
                 self._model.learn_step(x, label, self._optimizers)
 
     def outputs(self, X: np.ndarray) -> np.ndarray:
+        """Final quaternion outputs as (n, 4)."""
         out = np.empty((len(X), 4))
         for i, row in enumerate(X):
             x = np.atleast_2d(row)
@@ -118,6 +123,7 @@ class QuaternionHarness(Harness):
         return out
 
     def weights(self) -> list[list[float]]:
+        """Weight components per layer."""
         return [list(quaternion_np.as_float_array(p.weight)) for p in self._perceptrons]
 
 
@@ -125,6 +131,7 @@ class OctonionHarness(Harness):
     """Single OctonionPerceptron or an OctonionSequential stack."""
 
     def __init__(self, layers: int, learning_rate: float, seed: int) -> None:
+        """Build the perceptron chain."""
         self.name = "octonion" if layers == 1 else f"octonion-stack-{layers}"
         self._layers = [
             OctonionPerceptron(learning_rate=learning_rate, random_seed=seed + i)
@@ -133,20 +140,23 @@ class OctonionHarness(Harness):
         self._model = OctonionSequential(self._layers)
 
     def epoch(self, X: np.ndarray, y: np.ndarray, order: np.ndarray) -> None:
+        """One act-observe-correct pass; renormalize weights after."""
         for idx in order:
             self._model.forward(Octonion(X[idx].copy()))
             target = Octonion.unit() if y[idx] >= 0 else -Octonion.unit()
             self._model.correct(target)
-        for layer in self._layers:  # renormalization heartbeat (cf. train_nn.py)
+        for layer in self._layers:  # renormalization heartbeat: keep weights on S^7
             layer.weight = layer.weight.normalize()
 
     def outputs(self, X: np.ndarray) -> np.ndarray:
+        """Final octonion outputs as (n, 8)."""
         out = np.empty((len(X), 8))
         for i, row in enumerate(X):
             out[i] = self._model.forward(Octonion(row.copy())).to_array()
         return out
 
     def weights(self) -> list[list[float]]:
+        """Weight components per layer."""
         return [list(layer.weight.to_array()) for layer in self._layers]
 
 
@@ -163,14 +173,16 @@ def run_model(
 
     def record(epoch: int) -> None:
         train_out, test_out = harness.outputs(X_train), harness.outputs(X_test)
-        metrics.append({
-            "epoch": epoch,
-            "train_acc": float(np.mean(np.where(train_out[:, 0] >= 0, 1, -1) == y_train)),
-            "test_acc": float(np.mean(np.where(test_out[:, 0] >= 0, 1, -1) == y_test)),
-            "train_loss": geodesic_loss(train_out, y_train),
-            "test_loss": geodesic_loss(test_out, y_test),
-            "weights": harness.weights(),
-        })
+        metrics.append(
+            {
+                "epoch": epoch,
+                "train_acc": float(np.mean(np.where(train_out[:, 0] >= 0, 1, -1) == y_train)),
+                "test_acc": float(np.mean(np.where(test_out[:, 0] >= 0, 1, -1) == y_test)),
+                "train_loss": geodesic_loss(train_out, y_train),
+                "test_loss": geodesic_loss(test_out, y_test),
+                "weights": harness.weights(),
+            }
+        )
 
     record(0)
     for epoch in range(1, epochs + 1):
@@ -190,15 +202,18 @@ def run_baselines(
         ("decision-tree", DecisionTreeBaseline(random_seed=seed)),
     ]:
         model.fit(X_train, y_train)
-        results.append({
-            "model": name,
-            "train_acc": float(model.score(X_train, y_train)),
-            "test_acc": float(model.score(X_test, y_test)),
-        })
+        results.append(
+            {
+                "model": name,
+                "train_acc": float(model.score(X_train, y_train)),
+                "test_acc": float(model.score(X_test, y_test)),
+            }
+        )
     return results
 
 
 def main() -> None:
+    """CLI entry point."""
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--dataset", choices=["binary-1d", "binary-xor"], default="binary-xor")
     p.add_argument(
@@ -247,8 +262,10 @@ def main() -> None:
     last = result.get("metrics", [{}])[-1]
     print(f"wrote {out_path}")
     if "train_acc" in last:
-        print(f"final: train_acc={last['train_acc']:.3f} test_acc={last['test_acc']:.3f} "
-              f"train_loss={last['train_loss']:.3f}")
+        print(
+            f"final: train_acc={last['train_acc']:.3f} test_acc={last['test_acc']:.3f} "
+            f"train_loss={last['train_loss']:.3f}"
+        )
     for b in result.get("baselines", []):
         print(f"{b['model']}: train_acc={b['train_acc']:.3f} test_acc={b['test_acc']:.3f}")
 

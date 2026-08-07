@@ -10,6 +10,7 @@ class LogisticRegressionBaseline(BaselineModel):
     """Logistic regression baseline."""
 
     def __init__(self, max_iter: int = 1000, random_seed: int = 42) -> None:
+        """Configure the logistic regression baseline."""
         self.model = LogisticRegression(
             random_state=random_seed,
             max_iter=max_iter,

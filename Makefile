@@ -9,7 +9,7 @@ clear-actions-cache:
 	@gh cache delete --all
 
 .PHONY: full-actions-clear
-full-actions-clear: clear_actions_cache clear_workflow_runs
+full-actions-clear: clear-actions-cache clear-workflow-runs
 
 .PHONY: code-check
 code-check:

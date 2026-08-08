@@ -82,6 +82,7 @@ class WideLayer:
         self.use_kappa = use_kappa
         self.peel = peel
         self.schedule = schedule
+        self.align_sign = 1.0
         # init: identity + small perturbation, normalized; quaternion => zero the last 4 coords
         self.weights: list[Octonion] = []
         for _ in range(width):
@@ -126,6 +127,26 @@ class WideLayer:
             y2 = self.forward(x)
             rho = y.conjugate() * y2
             return _ratio(rho.conjugate() * r, incoming)
+        # HYBRID: exact peel for the outermost branch (it directly controls the
+        # output, y = P·b_last), alignment torque for the inner branches.
+        if self.peel == "hybrid":
+            prefix = [Octonion.unit()]
+            for b in bs:
+                prefix.append(prefix[-1] * b)  # prefix[k] = b_0·…·b_{k-1}
+            delta = (y.conjugate() * y_star).log()
+            for i in range(self.W):
+                if i == self.W - 1:  # exact update for the outermost branch
+                    b_star = prefix[i].inverse() * y_star
+                    s = bs[i].inverse() * b_star
+                    self.weights[i] = (self.weights[i] * oct_pow(s, self.lr)).normalize()
+                else:  # alignment torque for inner branches
+                    _left, right = subproducts(bs, i)
+                    d_i = right.inverse() * delta * right
+                    torque = np.zeros(8)
+                    torque[1:] = self.align_sign * cross_product_7d(bs[i].im, d_i.im)
+                    self.weights[i] = (self.weights[i] * Octonion(self.lr * torque).exp()).normalize()
+            rho = y.conjugate() * self.forward(x)
+            return _ratio(rho.conjugate() * r, incoming)
         # ALIGNMENT rule (the project's original mechanism): torque via 7D cross
         # product + kappa, NO exact peel — embraces non-associativity instead of
         # inverting through it. Tests whether this octonion-native rule succeeds
@@ -136,7 +157,7 @@ class WideLayer:
                 left, right = subproducts(bs, i)
                 d_i = right.inverse() * delta * right  # transport error into branch frame
                 torque = np.zeros(8)
-                torque[1:] = cross_product_7d(bs[i].im, d_i.im)  # alignment direction
+                torque[1:] = self.align_sign * cross_product_7d(bs[i].im, d_i.im)
                 kap = 1.0 - min(associator_mag(left, bs[i], right), 1.0) if self.use_kappa else 1.0
                 upd = Octonion(self.lr * kap * torque).exp()
                 self.weights[i] = (self.weights[i] * upd).normalize()

@@ -72,12 +72,15 @@ class WideLayer:
     """One wide layer: W one-sided branches, branch-product combiner, peel-and-solve wave."""
 
     def __init__(self, width: int, dim: int, lr: float, rng: np.random.Generator,
-                 combiner: str = "product", use_kappa: bool = True) -> None:
+                 combiner: str = "product", use_kappa: bool = True, peel: str = "nested",
+                 schedule: str = "jacobi") -> None:
         self.W = width
         self.dim = dim
         self.lr = lr
         self.combiner = combiner
         self.use_kappa = use_kappa
+        self.peel = peel
+        self.schedule = schedule
         # init: identity + small perturbation, normalized; quaternion => zero the last 4 coords
         self.weights: list[Octonion] = []
         for _ in range(width):
@@ -122,14 +125,46 @@ class WideLayer:
             y2 = self.forward(x)
             rho = y.conjugate() * y2
             return _ratio(rho.conjugate() * r, incoming)
+        # Gauss-Seidel: sequential nested peel, fresh neighbours each branch
+        if self.schedule == "gauss_seidel" and self.peel == "nested":
+            for i in range(self.W):
+                cur = self.branches(x)
+                prefix_i = fold_product(cur[:i]) if i > 0 else Octonion.unit()
+                tgt = y_star
+                for k in range(self.W - 1, i, -1):
+                    tgt = tgt * cur[k].inverse()
+                b_star = prefix_i.inverse() * tgt
+                s = cur[i].inverse() * b_star
+                self.weights[i] = (self.weights[i] * oct_pow(s, self.lr)).normalize()
+            y_new = self.forward(x)
+            rho = y.conjugate() * y_new
+            return _ratio(rho.conjugate() * r, incoming)
         # peel-and-solve, Jacobi (all shares from current bs)
         shares: list[Octonion] = []
         kappas: list[float] = []
-        for i in range(self.W):
-            left, right = subproducts(bs, i)
-            b_star = left.inverse() * y_star * right.inverse()
-            shares.append(bs[i].inverse() * b_star)
-            kappas.append(1.0 - min(associator_mag(left, bs[i], right), 1.0) if self.use_kappa else 1.0)
+        if self.peel == "nested":
+            # EXACT nested peel of the left-fold y = ((b_0·b_1)·b_2)…: unwind the
+            # real bracketing. prefix[k] = b_0·…·b_{k-1}; targets T[k] for the
+            # partial product P_k, T[W-1]=y*, T[k-1]=T[k]·b_k⁻¹; b_k* = prefix[k]⁻¹·T[k].
+            prefix = [Octonion.unit()]
+            for b in bs:
+                prefix.append(prefix[-1] * b)
+            targets: list[Octonion | None] = [None] * self.W
+            targets[self.W - 1] = y_star
+            for k in range(self.W - 1, 0, -1):
+                targets[k - 1] = targets[k] * bs[k].inverse()
+            for i in range(self.W):
+                b_star = prefix[i].inverse() * targets[i]
+                shares.append(bs[i].inverse() * b_star)
+                kappas.append(1.0)  # exact peel: no reliability discount needed
+        else:  # "assoc": associative-approx peel (the buggy original)
+            for i in range(self.W):
+                left, right = subproducts(bs, i)
+                b_star = left.inverse() * y_star * right.inverse()
+                shares.append(bs[i].inverse() * b_star)
+                kappas.append(
+                    1.0 - min(associator_mag(left, bs[i], right), 1.0) if self.use_kappa else 1.0
+                )
         for i in range(self.W):
             step = self.lr * kappas[i]
             self.weights[i] = (self.weights[i] * oct_pow(shares[i], step)).normalize()
@@ -158,14 +193,15 @@ def _pad8(X: np.ndarray) -> np.ndarray:
 
 
 def run(dim: int, width: int, combiner: str, use_kappa: bool, bits: int,
-        epochs: int, lr: float, seeds: int) -> dict:
+        epochs: int, lr: float, seeds: int, peel: str = "nested", schedule: str = "jacobi") -> dict:
     accs, ratios, wnorms = [], [], []
     for seed in range(seeds):
         rng = np.random.default_rng(seed)
         Xtr, ytr, Xte, yte = generate_parity(400, 200, 0.05, np.random.default_rng(1000 + seed),
                                              bits=bits, dim=dim)
         Xtr, Xte = _pad8(Xtr), _pad8(Xte)
-        model = WideLayer(width, dim, lr, rng, combiner=combiner, use_kappa=use_kappa)
+        model = WideLayer(width, dim, lr, rng, combiner=combiner, use_kappa=use_kappa, peel=peel,
+                          schedule=schedule)
         for _ep in range(epochs):
             order = rng.permutation(len(ytr))
             for idx in order:

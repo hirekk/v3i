@@ -165,6 +165,22 @@ class WideLayer:
                 kappas.append(
                     1.0 - min(associator_mag(left, bs[i], right), 1.0) if self.use_kappa else 1.0
                 )
+        if self.schedule == "adaptive":
+            # backtrack η until the residual invariant holds (‖residual‖ ≤ ‖incoming‖)
+            saved = [w.copy() for w in self.weights]
+            eta = self.lr
+            ratio = 2.0
+            for _ in range(7):
+                for j, w in enumerate(saved):
+                    self.weights[j] = w.copy()
+                for i in range(self.W):
+                    self.weights[i] = (self.weights[i] * oct_pow(shares[i], eta)).normalize()
+                rho = y.conjugate() * self.forward(x)
+                ratio = _ratio(rho.conjugate() * r, incoming)
+                if ratio <= 1.0 + 1e-9:
+                    break
+                eta *= 0.5
+            return ratio
         for i in range(self.W):
             step = self.lr * kappas[i]
             self.weights[i] = (self.weights[i] * oct_pow(shares[i], step)).normalize()

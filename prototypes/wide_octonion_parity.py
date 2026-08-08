@@ -34,6 +34,7 @@ from pathlib import Path
 import numpy as np
 
 from v3i.algebra import Octonion
+from v3i.algebra import cross_product_7d
 from v3i.make_data import generate_parity
 
 # --- octonion helpers on the real algebra (per-sample; W is small) ---
@@ -124,6 +125,22 @@ class WideLayer:
             self.weights[0] = (self.weights[0] * oct_pow(s, self.lr)).normalize()
             y2 = self.forward(x)
             rho = y.conjugate() * y2
+            return _ratio(rho.conjugate() * r, incoming)
+        # ALIGNMENT rule (the project's original mechanism): torque via 7D cross
+        # product + kappa, NO exact peel — embraces non-associativity instead of
+        # inverting through it. Tests whether this octonion-native rule succeeds
+        # where peel-and-solve structurally fails.
+        if self.peel == "alignment":
+            delta = (y.conjugate() * y_star).log()  # output-error tangent (pure imaginary)
+            for i in range(self.W):
+                left, right = subproducts(bs, i)
+                d_i = right.inverse() * delta * right  # transport error into branch frame
+                torque = np.zeros(8)
+                torque[1:] = cross_product_7d(bs[i].im, d_i.im)  # alignment direction
+                kap = 1.0 - min(associator_mag(left, bs[i], right), 1.0) if self.use_kappa else 1.0
+                upd = Octonion(self.lr * kap * torque).exp()
+                self.weights[i] = (self.weights[i] * upd).normalize()
+            rho = y.conjugate() * self.forward(x)
             return _ratio(rho.conjugate() * r, incoming)
         # Gauss-Seidel: sequential nested peel, fresh neighbours each branch
         if self.schedule == "gauss_seidel" and self.peel == "nested":

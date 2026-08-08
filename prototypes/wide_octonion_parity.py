@@ -27,6 +27,10 @@ renorm-sum combiner (linear aggregation → chance).
 
 from __future__ import annotations
 
+import json
+import sys
+from pathlib import Path
+
 import numpy as np
 
 from v3i.algebra import Octonion
@@ -177,7 +181,75 @@ def run(dim: int, width: int, combiner: str, use_kappa: bool, bits: int,
     }
 
 
+def geodesic_loss(model: WideLayer, X: np.ndarray, y: np.ndarray) -> float:
+    """Mean angle between output and the ±identity target pole (0 = perfect)."""
+    res = np.array([model.forward(Octonion(row.copy())).re for row in X])
+    return float(np.mean(np.arccos(np.clip(res * y, -1.0, 1.0))))
+
+
+def emit_run(name: str, dim: int, width: int, combiner: str, bits: int,
+             epochs: int, lr: float, seed: int, out_dir: Path) -> str:
+    """Train one seed, logging per-epoch metrics + per-branch weight snapshots.
+
+    Writes a run JSON in v3i.run_experiment's format so the existing dashboard
+    (uv run streamlit run src/v3i/dashboard.py) renders convergence + weight
+    evolution. Each branch is a 'layer' in the weight panel.
+    """
+    rng = np.random.default_rng(seed)
+    Xtr, ytr, Xte, yte = generate_parity(400, 200, 0.05, np.random.default_rng(1000 + seed),
+                                         bits=bits, dim=dim)
+    Xtr, Xte = _pad8(Xtr), _pad8(Xte)
+    model = WideLayer(width, dim, lr, rng, combiner=combiner)
+    metrics = []
+
+    def record(epoch: int) -> None:
+        metrics.append({
+            "epoch": epoch,
+            "train_acc": accuracy(model, Xtr, ytr),
+            "test_acc": accuracy(model, Xte, yte),
+            "train_loss": geodesic_loss(model, Xtr, ytr),
+            "test_loss": geodesic_loss(model, Xte, yte),
+            "weights": [w.to_array().tolist() for w in model.weights],  # W branches × 8
+        })
+
+    record(0)
+    for epoch in range(1, epochs + 1):
+        for idx in rng.permutation(len(ytr)):
+            model.learn(Xtr[idx], int(ytr[idx]))
+        record(epoch)
+
+    out_dir.mkdir(exist_ok=True)
+    tag = name.replace(" ", "_")
+    result = {
+        "config": {"dataset": "parity", "bits": bits, "model": name, "layers": width,
+                   "epochs": epochs, "seed": seed},
+        "model": name,
+        "metrics": metrics,
+    }
+    path = out_dir / f"{tag}.json"
+    path.write_text(json.dumps(result, indent=1))
+    print(f"wrote {path}  (final test_acc {metrics[-1]['test_acc']:.2f})", flush=True)
+    return str(path)
+
+
+def inspect() -> None:
+    """Emit dashboard-viewable runs contrasting the quaternion win vs octonion fail."""
+    out = Path("runs")
+    print("Emitting convergence runs for the dashboard (per-epoch acc/loss + weight evolution)...\n")
+    emit_run("proto-quaternion-product-W3", dim=4, width=3, combiner="product",
+             bits=3, epochs=25, lr=0.3, seed=0, out_dir=out)
+    emit_run("proto-octonion-product-W3", dim=8, width=3, combiner="product",
+             bits=3, epochs=25, lr=0.3, seed=0, out_dir=out)
+    emit_run("proto-octonion-product-W2-on-2bit", dim=8, width=2, combiner="product",
+             bits=2, epochs=25, lr=0.3, seed=0, out_dir=out)
+    print("\nInspect: uv run streamlit run src/v3i/dashboard.py  → Training comparison")
+    print("  Accuracy/loss panels = convergence; Weight-evolution panel = per-branch components.")
+
+
 def main() -> None:
+    if "--inspect" in sys.argv:
+        inspect()
+        return
     epochs, lr, seeds = 25, 0.3, 5
     print(f"3-bit parity gate | {seeds} seeds | {epochs} epochs | lr {lr} | pass = median >= 0.90\n")
     configs = [

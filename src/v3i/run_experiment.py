@@ -35,7 +35,6 @@ from v3i.models.perceptron.nn import QuaternionSequential
 from v3i.models.perceptron.octonion import OctonionPerceptron
 from v3i.models.perceptron.octonion import OctonionSequential
 from v3i.models.perceptron.quaternion import QuaternionPerceptron
-from v3i.models.perceptron.quaternion import QuaternionSimpleOptimizer
 
 # Best homogeneous linear separator on embedded XOR (docs/research/isometry-ceiling.md)
 XOR_LINEAR_CEILING = 0.75
@@ -96,14 +95,13 @@ class QuaternionHarness(Harness):
     """Single QuaternionPerceptron or a Sequential stack of them."""
 
     def __init__(self, layers: int, learning_rate: float, seed: int) -> None:
-        """Build the perceptron(s) and per-layer optimizers."""
+        """Build the perceptron(s)."""
         self.name = "quaternion" if layers == 1 else f"quaternion-stack-{layers}"
         self._perceptrons = [
             QuaternionPerceptron(learning_rate=learning_rate, random_seed=seed + i)
             for i in range(layers)
         ]
         self._model = QuaternionSequential(self._perceptrons) if layers > 1 else None
-        self._optimizers = [QuaternionSimpleOptimizer(p) for p in self._perceptrons]
 
     def epoch(self, X: np.ndarray, y: np.ndarray, order: np.ndarray) -> None:
         """One pass of per-sample geodesic updates."""
@@ -112,9 +110,9 @@ class QuaternionHarness(Harness):
             label = int(y[idx])
             if self._model is None:
                 u, _ = self._perceptrons[0].compute_update(x, label)
-                self._optimizers[0].step(u)
+                self._perceptrons[0].apply_update(u)
             else:
-                self._model.learn_step(x, label, self._optimizers)
+                self._model.learn_step(x, label)
 
     def outputs(self, X: np.ndarray) -> np.ndarray:
         """Final quaternion outputs as (n, 4)."""

@@ -107,3 +107,13 @@ def test_cross_product_7d_norm_identity() -> None:
         c = cross_product_7d(u, v)
         expected = np.dot(u, u) * np.dot(v, v) - np.dot(u, v) ** 2
         assert np.isclose(np.dot(c, c), expected, atol=1e-8)
+
+
+def test_from_rotation_vector_matches_exp() -> None:
+    """The collapsed tangent map (from_rotation_vector -> exp) is behavior-preserving."""
+    rng = np.random.default_rng(11)
+    for _ in range(50):
+        v = rng.normal(0, 0.7, 8)
+        assert np.allclose(
+            Octonion.from_rotation_vector(v).to_array(), Octonion(v).exp().to_array()
+        )

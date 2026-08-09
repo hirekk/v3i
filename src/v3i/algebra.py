@@ -29,18 +29,6 @@ def _quat_conj(q: np.ndarray) -> np.ndarray:
     return np.array([q[0], -q[1], -q[2], -q[3]], dtype=np.float64)
 
 
-def _safe_sinc(norm: float) -> float:
-    """Branchless sinc(norm) = sin(norm)/norm using Taylor for small norm.
-
-    Taylor: 1 - norm^2/6 + norm^4/120. Avoids discontinuity at 1e-12 for
-    better gradient properties and SIMD.
-    """
-    n2 = norm * norm
-    if n2 < 1e-8:
-        return 1.0 - n2 / 6.0 + (n2 * n2) / 120.0
-    return np.sin(norm) / norm
-
-
 def _safe_arctan2_scale(v_norm: float, re: float) -> float:
     """Branchless arctan2(v_norm, re) / v_norm for log/rotation vector.
 
@@ -76,40 +64,19 @@ class Octonion:
         """Return octonion as (8,) array."""
         return self._data.copy()
 
-    def to_rotation_vector(self) -> np.ndarray:
-        """Map octonion to tangent space (8D). out[0]=log(mag) for scale; out[1:]=rotation."""
-        mag = float(np.linalg.norm(self._data))
-        if mag < 1e-15:
-            return np.zeros(8, dtype=np.float64)
-        out = np.zeros(8, dtype=np.float64)
-        out[0] = np.log(mag)
-        v = self._data[1:]
-        v_norm = float(np.linalg.norm(v))
-        scale = _safe_arctan2_scale(v_norm, self._data[0])
-        out[1:] = v * scale
-        return out
-
     @classmethod
     def from_rotation_vector(cls, vector: np.ndarray) -> "Octonion":
-        """Tangent vector (8D; out[0]=log scale) to octonion via exp."""
+        """Tangent vector (8D; out[0]=log scale) to octonion. Thin view over `exp`.
+
+        `from_rotation_vector(v)` is exactly `exp(v)`: the tangent's real slot is the
+        log-magnitude and `exp` maps it back to the magnitude, so the geodesic map
+        lives once in `exp`/`log` rather than being encoded a second time here.
+        """
         vector = np.asarray(vector, dtype=np.float64).ravel()
         if vector.size != 8:
             error_message = f"Vector must be of size 8; got {vector.size}."
             raise ValueError(error_message)
-        mag_log = vector[0]
-        scale = np.exp(mag_log)
-        v_im = vector[1:8]
-        norm = float(np.linalg.norm(v_im))
-        if norm < 1e-15:
-            out = np.zeros(8, dtype=np.float64)
-            out[0] = scale
-            return cls(out)
-        sinc_n = _safe_sinc(norm)
-        comps = np.empty(8, dtype=np.float64)
-        comps[0] = np.cos(norm)
-        comps[1:8] = v_im * sinc_n
-        comps *= scale
-        return cls(comps)
+        return cls(vector).exp()
 
     @classmethod
     def unit(cls) -> "Octonion":

@@ -15,8 +15,8 @@ Two honest pictures behind the dashboard's "XOR geometry" view:
    Richer combiners use several weights (not a single 2-sphere), so those are
    compared by their accuracy distribution instead.
 
-The batched octonion algebra is derived from the project's own `Octonion`
-class (single source of truth) exactly as the research screen does.
+Batched octonion algebra comes from `v3i.batched_algebra` (single source of
+truth: the `Octonion` class).
 """
 
 from __future__ import annotations
@@ -24,46 +24,14 @@ from __future__ import annotations
 import numpy as np
 
 from v3i.algebra import Octonion
+from v3i.batched_algebra import bconj
+from v3i.batched_algebra import bmul
+from v3i.batched_algebra import bnormalize
+from v3i.batched_algebra import rmul
 from v3i.make_data import generate_binary_xor
 from v3i.make_data import to_s7_from_2d
 
 XOR_LINEAR_CEILING = 0.75
-
-# Structure tensor T[i,j,k]: e_i * e_j = sum_k T[i,j,k] e_k, from Octonion.
-_T = np.zeros((8, 8, 8))
-for _i in range(8):
-    for _j in range(8):
-        _ei, _ej = np.zeros(8), np.zeros(8)
-        _ei[_i] = _ej[_j] = 1.0
-        _T[_i, _j, :] = (Octonion(_ei) * Octonion(_ej)).to_array()
-
-_CONJ = np.array([1, -1, -1, -1, -1, -1, -1, -1], dtype=np.float64)
-
-
-def bmul(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """Row-wise octonion product of (n, 8) arrays."""
-    a = (x @ _T.reshape(8, 64)).reshape(-1, 8, 8)
-    return np.einsum("nj,njk->nk", y, a)
-
-
-def rmul(x: np.ndarray, w: np.ndarray) -> np.ndarray:
-    """x·w for each row of x, fixed weight w (8,)."""
-    return x @ np.tensordot(w, _T, axes=([0], [1]))
-
-
-def bconj(x: np.ndarray) -> np.ndarray:
-    """Row-wise conjugate."""
-    return x * _CONJ
-
-
-def bnormalize(x: np.ndarray) -> np.ndarray:
-    """Row-wise normalize; near-zero rows map to the identity octonion."""
-    n = np.linalg.norm(x, axis=1, keepdims=True)
-    out = x / np.where(n < 1e-12, 1.0, n)
-    bad = n[:, 0] < 1e-12
-    if bad.any():
-        out[bad] = np.array([1.0, 0, 0, 0, 0, 0, 0, 0])
-    return out
 
 
 def load_xor(seed: int = 42, noise: float = 0.1) -> dict[str, np.ndarray]:

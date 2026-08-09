@@ -29,18 +29,6 @@ def _quat_conj(q: np.ndarray) -> np.ndarray:
     return np.array([q[0], -q[1], -q[2], -q[3]], dtype=np.float64)
 
 
-def _safe_sinc(norm: float) -> float:
-    """Branchless sinc(norm) = sin(norm)/norm using Taylor for small norm.
-
-    Taylor: 1 - norm^2/6 + norm^4/120. Avoids discontinuity at 1e-12 for
-    better gradient properties and SIMD.
-    """
-    n2 = norm * norm
-    if n2 < 1e-8:
-        return 1.0 - n2 / 6.0 + (n2 * n2) / 120.0
-    return np.sin(norm) / norm
-
-
 def _safe_arctan2_scale(v_norm: float, re: float) -> float:
     """Branchless arctan2(v_norm, re) / v_norm for log/rotation vector.
 

@@ -51,18 +51,18 @@ def bconj(x: np.ndarray) -> np.ndarray:
     return x * _CONJ
 
 
-def bnormalize(x: np.ndarray, fallback: np.ndarray | None = None) -> np.ndarray:
-    """Row-wise normalize; near-zero rows take `fallback` (default the unit octonion)."""
+def bnormalize(x: np.ndarray) -> np.ndarray:
+    """Row-wise normalize; near-zero rows map to the unit octonion."""
     n = np.linalg.norm(x, axis=1, keepdims=True)
     out = x / np.where(n < 1e-12, 1.0, n)
     bad = n[:, 0] < 1e-12
     if bad.any():
-        out[bad] = np.array([1.0, 0, 0, 0, 0, 0, 0, 0]) if fallback is None else fallback
+        out[bad] = np.array([1.0, 0, 0, 0, 0, 0, 0, 0])
     return out
 
 
 def _sinc(norm: np.ndarray) -> np.ndarray:
-    """Row-wise sin(norm)/norm, Taylor-stable near 0 (matches `algebra._safe_sinc`)."""
+    """Row-wise sin(norm)/norm, Taylor-stable near 0 (matches `Octonion.exp`)."""
     small = norm < 1e-8
     safe = np.where(small, 1.0, norm)
     return np.where(small, 1.0 - norm**2 / 6.0 + norm**4 / 120.0, np.sin(safe) / safe)
@@ -127,6 +127,6 @@ _TQ16 = _TQ.reshape(4, 16)
 
 
 def bqmul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    """Row-wise quaternion product of `(n, 4)` arrays (the top-4 subalgebra)."""
+    """Row-wise quaternion product of `(n, 4)` arrays (the coords-0..3 subalgebra)."""
     p = (a @ _TQ16).reshape(-1, 4, 4)
     return np.einsum("nj,njk->nk", b, p)

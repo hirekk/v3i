@@ -109,11 +109,35 @@ def test_cross_product_7d_norm_identity() -> None:
         assert np.isclose(np.dot(c, c), expected, atol=1e-8)
 
 
-def test_from_rotation_vector_matches_exp() -> None:
-    """The collapsed tangent map (from_rotation_vector -> exp) is behavior-preserving."""
+def test_from_rotation_vector_reproduces_prior_formula() -> None:
+    """The collapsed from_rotation_vector reproduces the original hand-coded formula.
+
+    Anchors to the pre-collapse construction (cos/sinc/exp(scale)) rather than to
+    `exp` itself, so it's a golden check that the behavior is preserved.
+    """
     rng = np.random.default_rng(11)
     for _ in range(50):
         v = rng.normal(0, 0.7, 8)
-        assert np.allclose(
-            Octonion.from_rotation_vector(v).to_array(), Octonion(v).exp().to_array()
-        )
+        mag_log, v_im = v[0], v[1:8]
+        scale = np.exp(mag_log)
+        norm = float(np.linalg.norm(v_im))
+        if norm < 1e-15:
+            expected = np.zeros(8)
+            expected[0] = scale
+        else:
+            sinc = np.sin(norm) / norm if norm >= 1e-8 else 1 - norm**2 / 6 + norm**4 / 120
+            expected = np.empty(8)
+            expected[0] = np.cos(norm)
+            expected[1:8] = v_im * sinc
+            expected *= scale
+        assert np.allclose(Octonion.from_rotation_vector(v).to_array(), expected)
+
+
+def test_as_matrix_realizes_the_product() -> None:
+    """as_matrix('right') @ x == x*w and as_matrix('left') @ x == w*x (the sign tables)."""
+    rng = np.random.default_rng(12)
+    for _ in range(20):
+        w = Octonion(rng.normal(size=8))
+        x = Octonion(rng.normal(size=8))
+        assert np.allclose(w.as_matrix("right") @ x.to_array(), (x * w).to_array())
+        assert np.allclose(w.as_matrix("left") @ x.to_array(), (w * x).to_array())

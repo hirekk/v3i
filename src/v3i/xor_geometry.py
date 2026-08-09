@@ -33,8 +33,6 @@ from v3i.make_data import to_s7_from_2d
 
 XOR_LINEAR_CEILING = 0.75
 
-__all__ = ["bconj", "bmul", "bnormalize", "rmul"]  # re-exported for callers/tests
-
 
 def load_xor(seed: int = 42, noise: float = 0.1) -> dict[str, np.ndarray]:
     """XOR dataset: the source plane points, labels, and the S⁷ embedding."""

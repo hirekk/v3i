@@ -127,6 +127,23 @@ map [#16](https://github.com/hirekk/v3i/issues/16)).
 3. **A different learning rule entirely** — the whole point of the quaternion map is
    to understand peel-and-solve well enough to form an *evidence-based* hypothesis on
    whether, and how, octonions could ever pay off.
+4. **Cache forward intermediates to correct the associator defect** (driver idea,
+   sharpened by the #17 theory). The theory note pins the obstruction to *one*
+   associator, `[x, wᵢ, sᵢ]` — the input, the weight, and the update rotation — which
+   is irreducible because Artin only makes *two*-generator subalgebras associative.
+   Its three ingredients are all available at forward time. So the "octonion neurons
+   cache values as the signal propagates and reuse them for error contribution"
+   idea has a concrete target: cache the forward intermediates (`x`, `wᵢ`, `bᵢ`, the
+   bracketing) and, at error time, evaluate the associator defect and **correct the
+   weight update to cancel it**, so the realized branch lands on its peeled target
+   despite non-associativity — a Newton/fixed-point correction seeded by cached
+   forward state, not the plain peel that failed. Caveats: the correction is
+   *circular* (`sᵢ` sits inside the defect → needs iteration, convergence unproven,
+   and the plain rule's direction was wrong ~74% of the time); it edges toward
+   backprop-style activation caching (still gradient-free, but a deliberate departure
+   from strict forward-only). A more radical variant: cache to feed a
+   *non-associative-native* credit rule where the cached partial products *are* the
+   signal, rather than patching peel-and-solve. Driver wants to explore this.
 
 The bar a future octonion attempt must clear is now concrete: **beat the clean
 quaternion 1.00 on the parity ladder, stably, across seeds.**
